@@ -11,6 +11,7 @@ const navItems = [
   { label: 'Files', href: '/files' },
   { label: 'Invoices', href: '/invoices' },
   { label: 'Bookings', href: '/bookings' },
+  { label: 'Team', href: '/team' },
   { label: 'Settings', href: '/settings' },
 ]
 
