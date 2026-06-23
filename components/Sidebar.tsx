@@ -4,22 +4,22 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 
 const navItems = [
-  { label: 'Dashboard', href: '/dashboard', icon: '◻' },
-  { label: 'Clients', href: '/clients', icon: '◻' },
-  { label: 'Tasks', href: '/tasks', icon: '◻' },
-  { label: 'Messages', href: '/messages', icon: '◻' },
-  { label: 'Files', href: '/files', icon: '◻' },
-  { label: 'Invoices', href: '/invoices', icon: '◻' },
-  { label: 'Settings', href: '/settings', icon: '◻' },
+  { label: 'Dashboard', href: '/dashboard' },
+  { label: 'Clients', href: '/clients' },
+  { label: 'Tasks', href: '/tasks' },
+  { label: 'Messages', href: '/messages' },
+  { label: 'Files', href: '/files' },
+  { label: 'Invoices', href: '/invoices' },
+  { label: 'Settings', href: '/settings' },
 ]
 
 export default function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <aside className="w-56 bg-ink min-h-screen flex flex-col">
-      <div className="px-5 py-5 border-b border-white/10">
-        <h1 className="text-white text-lg font-bold tracking-tight">GScale Portal</h1>
+    <aside className="w-56 min-h-screen flex flex-col" style={{ backgroundColor: '#2A2520' }}>
+      <div className="px-5 py-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+        <h1 className="text-lg font-bold tracking-tight" style={{ color: '#FFFFFF' }}>GScale Portal</h1>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navItems.map((item) => {
@@ -28,19 +28,19 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-butter text-ink'
-                  : 'text-white/70 hover:text-white hover:bg-white/10'
-              }`}
+              className="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                backgroundColor: isActive ? '#FFFDB4' : 'transparent',
+                color: isActive ? '#2A2520' : 'rgba(255,255,255,0.7)',
+              }}
             >
               {item.label}
             </Link>
           )
         })}
       </nav>
-      <div className="px-3 py-4 border-t border-white/10">
-        <p className="text-white/30 text-xs px-3">GScale Marketing</p>
+      <div className="px-3 py-4" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+        <p className="text-xs px-3" style={{ color: 'rgba(255,255,255,0.3)' }}>GScale Marketing</p>
       </div>
     </aside>
   )
