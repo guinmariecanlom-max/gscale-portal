@@ -33,7 +33,6 @@ export default function BookingsPage() {
       .from('bookings')
       .select('*')
       .order('scheduled_time', { ascending: false })
-
     if (data) setBookings(data)
     setLoading(false)
   }
@@ -50,7 +49,9 @@ export default function BookingsPage() {
   const upcoming = bookings.filter(b => b.status === 'scheduled' && new Date(b.scheduled_time) >= new Date())
   const filteredBookings = filter === 'all' ? bookings : bookings.filter(b => b.status === filter)
 
-  if (loading) return <p style={{ color: 'rgba(42,37,32,0.5)' }}>Loading bookings...</p>
+  if (loading) {
+    return (<p style={{ color: 'rgba(42,37,32,0.5)' }}>Loading bookings...</p>)
+  }
 
   return (
     <div>
@@ -59,14 +60,7 @@ export default function BookingsPage() {
           <h2 className="text-2xl font-bold text-ink">Bookings</h2>
           <p className="text-sm mt-1" style={{ color: 'rgba(42,37,32,0.5)' }}>{bookings.length} total bookings</p>
         </div>
-        
-          href="/book"
-          target="_blank"
-          className="px-4 py-2.5 border border-cream rounded-lg text-sm font-medium hover:bg-cream/30 transition-colors"
-          style={{ color: '#2A2520' }}
-        >
-          View Public Page ↗
-        </a>
+        <a href="/book" target="_blank" className="px-4 py-2.5 border border-cream rounded-lg text-sm font-medium hover:bg-cream/30 transition-colors" style={{ color: '#2A2520' }}>View Public Page</a>
       </div>
 
       <div className="grid grid-cols-3 gap-4 mb-6">
@@ -87,21 +81,20 @@ export default function BookingsPage() {
       <div className="flex gap-2 mb-6">
         {['all', 'scheduled', 'completed', 'cancelled'].map((f) => (
           <button key={f} onClick={() => setFilter(f)} className="px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-colors" style={{ backgroundColor: filter === f ? '#2A2520' : '#FFFFFF', color: filter === f ? '#FFFFFF' : 'rgba(42,37,32,0.6)', border: filter === f ? 'none' : '1px solid #EBE3D3' }}>
-            {f === 'all' ? `All (${bookings.length})` : `${f} (${bookings.filter(b => b.status === f).length})`}
+            {f === 'all' ? 'All (' + bookings.length + ')' : f + ' (' + bookings.filter(b => b.status === f).length + ')'}
           </button>
         ))}
       </div>
 
       {filteredBookings.length === 0 ? (
         <div className="bg-white rounded-xl p-12 border border-cream text-center">
-          <p className="text-sm" style={{ color: 'rgba(42,37,32,0.4)' }}>No bookings yet. Share your booking link: <strong>/book</strong></p>
+          <p className="text-sm" style={{ color: 'rgba(42,37,32,0.4)' }}>No bookings yet. Share your booking link: /book</p>
         </div>
       ) : (
         <div className="space-y-3">
           {filteredBookings.map((booking) => {
             const sc = statusColors[booking.status] || statusColors.scheduled
             const date = new Date(booking.scheduled_time)
-            const isPast = date < new Date()
             return (
               <div key={booking.id} className="bg-white rounded-xl border border-cream p-5">
                 <div className="flex items-start justify-between">
@@ -115,8 +108,8 @@ export default function BookingsPage() {
                     </div>
                     <div className="flex gap-4 text-xs" style={{ color: 'rgba(42,37,32,0.5)' }}>
                       <span>{booking.prospect_email}</span>
-                      {booking.business_name && <span>{booking.business_name}</span>}
-                      {booking.website && <a href={booking.website} target="_blank" rel="noopener noreferrer" className="underline">{booking.website}</a>}
+                      {booking.business_name && (<span>{booking.business_name}</span>)}
+                      {booking.website && (<a href={booking.website} target="_blank" rel="noopener noreferrer" className="underline">{booking.website}</a>)}
                     </div>
                     <div className="flex items-center gap-2 mt-3">
                       <span className="text-sm font-medium" style={{ color: '#2A2520' }}>
@@ -132,10 +125,10 @@ export default function BookingsPage() {
                   </div>
                   <div className="flex gap-2">
                     {booking.status === 'scheduled' && (
-                      <>
+                      <div className="flex gap-2">
                         <button onClick={() => updateStatus(booking.id, 'completed')} className="text-xs px-3 py-1.5 rounded border border-cream hover:bg-cream/50" style={{ color: '#16a34a' }}>Complete</button>
                         <button onClick={() => updateStatus(booking.id, 'cancelled')} className="text-xs px-3 py-1.5 rounded border border-cream hover:bg-cream/50" style={{ color: '#ef4444' }}>Cancel</button>
-                      </>
+                      </div>
                     )}
                   </div>
                 </div>
