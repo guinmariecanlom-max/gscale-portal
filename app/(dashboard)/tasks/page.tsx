@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase/client'
 
 type Task = {
@@ -61,6 +61,8 @@ export default function TasksPage() {
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [view, setView] = useState<'kanban' | 'list'>('kanban')
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     title: '',
@@ -122,7 +124,40 @@ export default function TasksPage() {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
   }
 
-  if (loading) return <p className="text-ink/50">Loading tasks...</p>
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+    setDragId(taskId)
+    e.dataTransfer.effectAllowed = 'move'
+    const el = e.currentTarget as HTMLElement
+    el.style.opacity = '0.5'
+  }
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    const el = e.currentTarget as HTMLElement
+    el.style.opacity = '1'
+    setDragId(null)
+    setDropTarget(null)
+  }
+
+  const handleDragOver = (e: React.DragEvent, colKey: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDropTarget(colKey)
+  }
+
+  const handleDragLeave = () => {
+    setDropTarget(null)
+  }
+
+  const handleDrop = (e: React.DragEvent, colKey: string) => {
+    e.preventDefault()
+    if (dragId) {
+      moveTask(dragId, colKey)
+    }
+    setDragId(null)
+    setDropTarget(null)
+  }
+
+  if (loading) return <p style={{ color: 'rgba(42,37,32,0.5)' }}>Loading tasks...</p>
 
   return (
     <div>
@@ -144,33 +179,46 @@ export default function TasksPage() {
         <div className="grid grid-cols-4 gap-4">
           {columns.map((col) => {
             const colTasks = tasks.filter(t => t.status === col.key)
+            const isOver = dropTarget === col.key
             return (
-              <div key={col.key} className="bg-white rounded-xl border border-cream">
+              <div
+                key={col.key}
+                className="bg-white rounded-xl border-2 transition-colors"
+                style={{ borderColor: isOver ? '#FFFDB4' : '#EBE3D3', backgroundColor: isOver ? '#FFFDF0' : '#FFFFFF' }}
+                onDragOver={(e) => handleDragOver(e, col.key)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, col.key)}
+              >
                 <div className="px-4 py-3 border-b border-cream flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-ink">{col.label}</h3>
                   <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: '#EBE3D3', color: '#2A2520' }}>{colTasks.length}</span>
                 </div>
                 <div className="p-3 space-y-3 min-h-[200px]">
+                  {colTasks.length === 0 && (
+                    <p className="text-xs text-center py-8" style={{ color: 'rgba(42,37,32,0.25)' }}>
+                      {isOver ? 'Drop here' : 'No tasks'}
+                    </p>
+                  )}
                   {colTasks.map((task) => (
-                    <div key={task.id} className="bg-cream-light rounded-lg p-3 border border-cream/50">
+                    <div
+                      key={task.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, task.id)}
+                      onDragEnd={handleDragEnd}
+                      className="rounded-lg p-3 border border-cream/50 cursor-grab active:cursor-grabbing"
+                      style={{ backgroundColor: '#FAF8F0' }}
+                    >
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: serviceColors[task.service_area] || '#6b7280' }}>
                           {serviceLabels[task.service_area] || task.service_area}
                         </span>
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: priorityColors[task.priority] || '#94a3b8' }}></span>
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: priorityColors[task.priority] || '#94a3b8' }} title={task.priority}></span>
                       </div>
                       <p className="text-sm font-medium text-ink mb-1">{task.title}</p>
-                      <p className="text-xs mb-3" style={{ color: 'rgba(42,37,32,0.4)' }}>{task.clients?.business_name || 'No client'}</p>
+                      <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>{task.clients?.business_name || 'No client'}</p>
                       {task.due_date && (
-                        <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>Due: {new Date(task.due_date).toLocaleDateString()}</p>
+                        <p className="text-xs mt-1" style={{ color: 'rgba(42,37,32,0.4)' }}>Due: {new Date(task.due_date).toLocaleDateString()}</p>
                       )}
-                      <div className="flex gap-1 mt-2">
-                        {columns.filter(c => c.key !== task.status).map(c => (
-                          <button key={c.key} onClick={() => moveTask(task.id, c.key)} className="text-xs px-2 py-1 rounded border border-cream hover:bg-cream/50 transition-colors" style={{ color: 'rgba(42,37,32,0.5)' }}>
-                            {c.label}
-                          </button>
-                        ))}
-                      </div>
                     </div>
                   ))}
                 </div>
