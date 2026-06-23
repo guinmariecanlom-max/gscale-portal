@@ -10,6 +10,7 @@ const navItems = [
   { label: 'Messages', href: '/messages' },
   { label: 'Files', href: '/files' },
   { label: 'Invoices', href: '/invoices' },
+  { label: 'Bookings', href: '/bookings' },
   { label: 'Settings', href: '/settings' },
 ]
 
