@@ -24,6 +24,12 @@ type TaskCount = {
   status: string
 }
 
+const roleColors: Record<string, { bg: string; text: string }> = {
+  admin: { bg: '#FFFDB4', text: '#2A2520' },
+  team: { bg: '#eff6ff', text: '#3b82f6' },
+  client: { bg: '#f0fdf4', text: '#16a34a' },
+}
+
 export default function TeamPage() {
   const [members, setMembers] = useState<TeamMember[]>([])
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -129,13 +135,9 @@ export default function TeamPage() {
     return { open, done, total: userTasks.length }
   }
 
-  const roleColors: Record<string, { bg: string; text: string }> = {
-    admin: { bg: '#FFFDB4', text: '#2A2520' },
-    team: { bg: '#eff6ff', text: '#3b82f6' },
-    client: { bg: '#f0fdf4', text: '#16a34a' },
+  if (loading) {
+    return (<p style={{ color: 'rgba(42,37,32,0.5)' }}>Loading team...</p>)
   }
-
-  if (loading) return <p style={{ color: 'rgba(42,37,32,0.5)' }}>Loading team...</p>
 
   return (
     <div>
@@ -150,7 +152,6 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {/* Team Load Overview */}
       <div className="bg-white rounded-xl border border-cream p-6 mb-6">
         <h3 className="text-sm font-semibold text-ink mb-4">Team Load</h3>
         <div className="space-y-3">
@@ -158,14 +159,16 @@ export default function TeamPage() {
             const stats = getTaskStats(m.id)
             const maxTasks = 15
             const barWidth = stats.total > 0 ? Math.min((stats.open / maxTasks) * 100, 100) : 0
-            const barColor = barWidth > 80 ? '#ef4444' : barWidth > 50 ? '#f59e0b' : '#22c55e'
+            let barColor = '#22c55e'
+            if (barWidth > 80) barColor = '#ef4444'
+            else if (barWidth > 50) barColor = '#f59e0b'
             return (
               <div key={m.id} className="flex items-center gap-4">
                 <div className="w-32 flex-shrink-0">
                   <p className="text-sm font-medium text-ink truncate">{m.full_name || m.email}</p>
                 </div>
                 <div className="flex-1 h-6 rounded-full overflow-hidden" style={{ backgroundColor: '#F1F5F9' }}>
-                  <div className="h-full rounded-full transition-all" style={{ width: `${barWidth}%`, backgroundColor: barColor }} />
+                  <div className="h-full rounded-full transition-all" style={{ width: barWidth + '%', backgroundColor: barColor }}></div>
                 </div>
                 <div className="w-24 text-right flex-shrink-0">
                   <span className="text-xs font-medium" style={{ color: 'rgba(42,37,32,0.5)' }}>{stats.open} open / {stats.done} done</span>
@@ -176,7 +179,6 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {/* Members List */}
       <div className="bg-white rounded-xl border border-cream overflow-hidden mb-6">
         <table className="w-full">
           <thead>
@@ -206,7 +208,7 @@ export default function TeamPage() {
                   </td>
                   <td className="px-5 py-4">
                     <div className="flex flex-wrap gap-1">
-                      {memberAssignments.length === 0 && <span className="text-xs" style={{ color: 'rgba(42,37,32,0.3)' }}>None</span>}
+                      {memberAssignments.length === 0 && (<span className="text-xs" style={{ color: 'rgba(42,37,32,0.3)' }}>None</span>)}
                       {memberAssignments.map((a) => (
                         <span key={a.id} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded" style={{ backgroundColor: '#FAF8F0', color: 'rgba(42,37,32,0.7)' }}>
                           {a.clients?.business_name}
@@ -225,7 +227,6 @@ export default function TeamPage() {
         </table>
       </div>
 
-      {/* Invite Modal */}
       {showInvite && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg">
@@ -254,7 +255,7 @@ export default function TeamPage() {
                   <option value="admin">Admin</option>
                 </select>
               </div>
-              {inviteMsg && <p className="text-sm" style={{ color: '#ef4444' }}>{inviteMsg}</p>}
+              {inviteMsg && (<p className="text-sm" style={{ color: '#ef4444' }}>{inviteMsg}</p>)}
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowInvite(false)} className="flex-1 py-2.5 border border-cream rounded-lg text-sm font-medium" style={{ color: 'rgba(42,37,32,0.6)' }}>Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 py-2.5 bg-ink text-white rounded-lg text-sm font-medium disabled:opacity-50">{saving ? 'Creating...' : 'Add Member'}</button>
@@ -264,7 +265,6 @@ export default function TeamPage() {
         </div>
       )}
 
-      {/* Assign Modal */}
       {showAssign && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg">
@@ -277,14 +277,14 @@ export default function TeamPage() {
                 <label className="block text-sm font-medium text-ink mb-1">Team Member *</label>
                 <select value={assignForm.team_member_user_id} onChange={(e) => setAssignForm({ ...assignForm, team_member_user_id: e.target.value })} className="w-full px-4 py-2.5 border border-cream rounded-lg text-sm bg-white" required>
                   <option value="">Select member</option>
-                  {members.filter(m => m.role !== 'client').map(m => <option key={m.id} value={m.id}>{m.full_name || m.email}</option>)}
+                  {members.filter(m => m.role !== 'client').map(m => (<option key={m.id} value={m.id}>{m.full_name || m.email}</option>))}
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-ink mb-1">Client *</label>
                 <select value={assignForm.client_id} onChange={(e) => setAssignForm({ ...assignForm, client_id: e.target.value })} className="w-full px-4 py-2.5 border border-cream rounded-lg text-sm bg-white" required>
                   <option value="">Select client</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.business_name}</option>)}
+                  {clients.map(c => (<option key={c.id} value={c.id}>{c.business_name}</option>))}
                 </select>
               </div>
               <div>
