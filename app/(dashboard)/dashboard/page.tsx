@@ -27,8 +27,9 @@ type ClientItem = {
 
 export default function DashboardPage() {
   const [userName, setUserName] = useState('')
+  const [userRole, setUserRole] = useState('')
   const [greeting, setGreeting] = useState('Good morning')
-  const [stats, setStats] = useState({ revenue: 0, projects: 0, tasksCompleted: 0, outstanding: 0, clients: 0, revenuePrev: 0, projectsPrev: 0, tasksPrev: 0, outstandingPrev: 0 })
+  const [stats, setStats] = useState({ revenue: 0, projects: 0, tasksCompleted: 0, outstanding: 0, clients: 0 })
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([])
   const [upcomingTasks, setUpcomingTasks] = useState<TaskItem[]>([])
   const [topClients, setTopClients] = useState<ClientItem[]>([])
@@ -43,7 +44,11 @@ export default function DashboardPage() {
 
     const loadData = async () => {
       const { data: { session } } = await supabase.auth.getSession()
-      if (session) setUserName(session.user.user_metadata?.full_name || 'there')
+      if (session) {
+        setUserName(session.user.user_metadata?.full_name || 'there')
+        const { data: userData } = await supabase.from('users').select('role').eq('id', session.user.id).single()
+        if (userData) setUserRole(userData.role)
+      }
 
       const { count: clientCount } = await supabase.from('clients').select('*', { count: 'exact', head: true })
       const { count: activeProjects } = await supabase.from('projects').select('*', { count: 'exact', head: true }).eq('status', 'active')
@@ -65,7 +70,7 @@ export default function DashboardPage() {
       const { count: projectCount } = await supabase.from('projects').select('*', { count: 'exact', head: true })
       const { count: invoiceCount } = await supabase.from('invoices').select('*', { count: 'exact', head: true })
 
-      setStats({ revenue: totalRevenue, projects: activeProjects || 0, tasksCompleted: tasksDone || 0, outstanding, clients: clientCount || 0, revenuePrev: 0, projectsPrev: 0, tasksPrev: 0, outstandingPrev: 0 })
+      setStats({ revenue: totalRevenue, projects: activeProjects || 0, tasksCompleted: tasksDone || 0, outstanding, clients: clientCount || 0 })
       if (activityData) setRecentActivity(activityData)
       if (tasksUpcoming) setUpcomingTasks(tasksUpcoming)
       if (clientsData) setTopClients(clientsData)
@@ -94,6 +99,7 @@ export default function DashboardPage() {
   const totalTasks = tasksByStatus.todo + tasksByStatus.in_progress + tasksByStatus.in_review + tasksByStatus.done
   const setupComplete = Object.values(setupChecks).filter(Boolean).length
   const setupTotal = Object.values(setupChecks).length
+  const isAdmin = userRole === 'admin'
 
   const getInitials = (name: string) => {
     return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
@@ -124,11 +130,12 @@ export default function DashboardPage() {
       {/* Stats Row */}
       <div className="grid grid-cols-4 gap-4 mb-8">
         {[
-          { label: 'Total Revenue', value: formatMoney(stats.revenue), icon: '&#128176;', change: '+12.5%' },
+          ...(isAdmin ? [{ label: 'Total Revenue', value: formatMoney(stats.revenue), icon: '&#128176;', change: '+12.5%' }] : []),
+          { label: 'Active Clients', value: stats.clients.toString(), icon: '&#128101;', change: '' },
           { label: 'Active Projects', value: stats.projects.toString(), icon: '&#128197;', change: '+20%' },
           { label: 'Tasks Completed', value: stats.tasksCompleted.toString(), icon: '&#9989;', change: '+15%' },
-          { label: 'Outstanding Invoices', value: formatMoney(stats.outstanding), icon: '&#128196;', change: '' },
-        ].map((stat) => (
+          ...(isAdmin ? [{ label: 'Outstanding Invoices', value: formatMoney(stats.outstanding), icon: '&#128196;', change: '' }] : []),
+        ].slice(0, 4).map((stat) => (
           <div key={stat.label} className="bg-white rounded-xl p-5 border border-cream">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-medium" style={{ color: 'rgba(42,37,32,0.5)' }}>{stat.label}</p>
@@ -145,47 +152,47 @@ export default function DashboardPage() {
       </div>
 
       {/* Revenue Chart + Recent Activity */}
-      <div className="grid grid-cols-5 gap-6 mb-6">
-        <div className="col-span-3 bg-white rounded-xl border border-cream p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-ink">Revenue Overview</h3>
-            <span className="text-xs px-3 py-1.5 rounded-lg border border-cream" style={{ color: 'rgba(42,37,32,0.5)' }}>This Month</span>
-          </div>
-          <div className="h-48 flex items-end gap-1">
-            {Array.from({ length: 30 }, (_, i) => {
-              const h = Math.max(15, Math.random() * 80 + (i * 2))
-              return (
-                <div key={i} className="flex-1 rounded-t transition-all hover:opacity-80" style={{ height: h + '%', backgroundColor: i < 25 ? '#FFFDB4' : '#EBE3D3' }} />
-              )
-            })}
-          </div>
-          <div className="flex items-center gap-6 mt-4">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#FFFDB4' }} />
-              <span className="text-xs" style={{ color: 'rgba(42,37,32,0.5)' }}>This Month</span>
+      <div className={`grid ${isAdmin ? 'grid-cols-5' : 'grid-cols-1'} gap-6 mb-6`}>
+        {isAdmin && (
+          <div className="col-span-3 bg-white rounded-xl border border-cream p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold text-ink">Revenue Overview</h3>
+              <span className="text-xs px-3 py-1.5 rounded-lg border border-cream" style={{ color: 'rgba(42,37,32,0.5)' }}>This Month</span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#EBE3D3' }} />
-              <span className="text-xs" style={{ color: 'rgba(42,37,32,0.5)' }}>Last Month</span>
+            <div className="h-48 flex items-end gap-1">
+              {Array.from({ length: 30 }, (_, i) => {
+                const h = Math.max(15, Math.random() * 80 + (i * 2))
+                return (
+                  <div key={i} className="flex-1 rounded-t transition-all hover:opacity-80" style={{ height: h + '%', backgroundColor: i < 25 ? '#FFFDB4' : '#EBE3D3' }} />
+                )
+              })}
+            </div>
+            <div className="flex items-center gap-6 mt-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#FFFDB4' }} />
+                <span className="text-xs" style={{ color: 'rgba(42,37,32,0.5)' }}>This Month</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#EBE3D3' }} />
+                <span className="text-xs" style={{ color: 'rgba(42,37,32,0.5)' }}>Last Month</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        <div className="col-span-2 bg-white rounded-xl border border-cream p-6">
+        <div className={`${isAdmin ? 'col-span-2' : ''} bg-white rounded-xl border border-cream p-6`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-ink">Recent Activity</h3>
             <a href="/tasks" className="text-xs font-medium" style={{ color: 'rgba(42,37,32,0.5)' }}>View all</a>
           </div>
           <div className="space-y-4">
             {recentActivity.length === 0 ? (
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm flex-shrink-0" style={{ backgroundColor: '#FAF8F0' }}>&#128196;</div>
-                  <div>
-                    <p className="text-sm font-medium text-ink">Portal created</p>
-                    <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>Your GScale Portal is live</p>
-                    <p className="text-xs mt-0.5" style={{ color: 'rgba(42,37,32,0.3)' }}>Just now</p>
-                  </div>
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm flex-shrink-0" style={{ backgroundColor: '#FAF8F0' }}>&#128196;</div>
+                <div>
+                  <p className="text-sm font-medium text-ink">Portal created</p>
+                  <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>Your GScale Portal is live</p>
+                  <p className="text-xs mt-0.5" style={{ color: 'rgba(42,37,32,0.3)' }}>Just now</p>
                 </div>
               </div>
             ) : (
@@ -204,9 +211,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Upcoming Tasks + Projects Overview + Top Clients */}
+      {/* Upcoming Tasks + Tasks Overview + Top Clients */}
       <div className="grid grid-cols-3 gap-6 mb-6">
-        {/* Upcoming Tasks */}
         <div className="bg-white rounded-xl border border-cream p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-ink">Upcoming Tasks</h3>
@@ -238,7 +244,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Projects Overview - Donut */}
         <div className="bg-white rounded-xl border border-cream p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-ink">Tasks Overview</h3>
@@ -263,16 +268,7 @@ export default function DashboardPage() {
                     const dash = pct * circ
                     const gap = circ - dash
                     const el = (
-                      <circle
-                        key={i}
-                        cx="70" cy="70" r={r}
-                        fill="none"
-                        stroke={seg.color}
-                        strokeWidth="16"
-                        strokeDasharray={`${dash} ${gap}`}
-                        strokeDashoffset={-offset}
-                        transform="rotate(-90 70 70)"
-                      />
+                      <circle key={i} cx="70" cy="70" r={r} fill="none" stroke={seg.color} strokeWidth="16" strokeDasharray={`${dash} ${gap}`} strokeDashoffset={-offset} transform="rotate(-90 70 70)" />
                     )
                     offset += dash
                     return el
@@ -305,7 +301,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Top Clients */}
         <div className="bg-white rounded-xl border border-cream p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-ink">Top Clients</h3>
@@ -326,7 +321,9 @@ export default function DashboardPage() {
                     <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>{client.status}</p>
                   </div>
                 </div>
-                <p className="text-sm font-semibold text-ink">${client.monthly_retainer.toLocaleString()}</p>
+                {isAdmin && (
+                  <p className="text-sm font-semibold text-ink">${client.monthly_retainer.toLocaleString()}</p>
+                )}
               </div>
             ))}
           </div>
