@@ -42,21 +42,20 @@ export default function MessagesPage() {
   const [loading, setLoading] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const loadChannels = async () => {
-    const { data } = await supabase.from('channels').select('*').order('created_at', { ascending: true })
-    if (data) setChannels(data)
-    return data
-  }
-
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (session) setUserId(session.user.id)
 
-      const channelsData = await loadChannels()
+      const { data: channelsData } = await supabase.from('channels').select('*').order('created_at', { ascending: true })
       const { data: usersData } = await supabase.from('users').select('id, full_name, email')
 
-      if (channelsData && channelsData.length > 0) setActiveChannel(channelsData[0])
+      if (channelsData && channelsData.length > 0) {
+        setChannels(channelsData)
+        setActiveChannel(channelsData[0])
+      } else if (channelsData) {
+        setChannels(channelsData)
+      }
       if (usersData) setUsers(usersData)
       setLoading(false)
     }
@@ -82,7 +81,12 @@ export default function MessagesPage() {
         const newMsg = payload.new as Message
         const { data: userData } = await supabase.from('users').select('full_name, email').eq('id', newMsg.sender_user_id).single()
         newMsg.users = userData || undefined
-        setMessages(prev => [...prev, newMsg])
+        setMessages(prev => {
+          const withoutOptimistic = prev.filter(m => !m.id.startsWith('temp-'))
+          const exists = withoutOptimistic.some(m => m.id === newMsg.id)
+          if (exists) return withoutOptimistic
+          return [...withoutOptimistic, newMsg]
+        })
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
       })
       .subscribe()
@@ -93,8 +97,25 @@ export default function MessagesPage() {
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newMessage.trim() || !activeChannel || !userId) return
-    await supabase.from('messages').insert({ channel_id: activeChannel.id, sender_user_id: userId, content: newMessage.trim() })
+    const content = newMessage.trim()
     setNewMessage('')
+
+    const me = users.find(u => u.id === userId)
+    const optimisticMsg: Message = {
+      id: 'temp-' + Date.now(),
+      content,
+      sender_user_id: userId,
+      channel_id: activeChannel.id,
+      created_at: new Date().toISOString(),
+      users: me ? { full_name: me.full_name, email: me.email } : undefined,
+    }
+    setMessages(prev => [...prev, optimisticMsg])
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+
+    const { error } = await supabase.from('messages').insert({ channel_id: activeChannel.id, sender_user_id: userId, content })
+    if (error) {
+      setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
+    }
   }
 
   const createChannel = async (e: React.FormEvent) => {
@@ -111,21 +132,13 @@ export default function MessagesPage() {
 
   const openDM = async (otherUser: UserProfile) => {
     if (!userId) return
-    const myName = users.find(u => u.id === userId)?.full_name || 'Me'
     const dmName = `dm-${[userId, otherUser.id].sort().join('-')}`
-
     const existing = channels.find(c => c.type === 'dm' && c.name === dmName)
     if (existing) {
       setActiveChannel(existing)
       return
     }
-
-    const { data, error } = await supabase
-      .from('channels')
-      .insert({ name: dmName, type: 'dm' })
-      .select()
-      .single()
-
+    const { data, error } = await supabase.from('channels').insert({ name: dmName, type: 'dm' }).select().single()
     if (!error && data) {
       setChannels(prev => [...prev, data])
       setActiveChannel(data)
@@ -137,25 +150,19 @@ export default function MessagesPage() {
     await supabase.from('messages').delete().eq('channel_id', activeChannel.id)
     await supabase.from('channel_members').delete().eq('channel_id', activeChannel.id)
     await supabase.from('channels').delete().eq('id', activeChannel.id)
-    setChannels(prev => prev.filter(c => c.id !== activeChannel.id))
-    setActiveChannel(channels.filter(c => c.id !== activeChannel.id)[0] || null)
+    const remaining = channels.filter(c => c.id !== activeChannel.id)
+    setChannels(remaining)
+    setActiveChannel(remaining[0] || null)
     setShowDeleteConfirm(false)
     setShowDetails(false)
   }
 
   const getDMDisplayName = (channelName: string) => {
     if (!userId) return channelName
-    const parts = channelName.replace('dm-', '').split('-')
-    const otherParts: string[] = []
-    let temp = ''
-    for (const p of parts) {
-      temp = temp ? temp + '-' + p : p
-      if (temp.length >= 36) {
-        otherParts.push(temp)
-        temp = ''
-      }
-    }
-    const otherId = otherParts.find(id => id !== userId) || ''
+    const raw = channelName.replace('dm-', '')
+    const id1 = raw.substring(0, 36)
+    const id2 = raw.substring(37)
+    const otherId = id1 === userId ? id2 : id1
     const otherUser = users.find(u => u.id === otherId)
     return otherUser?.full_name || otherUser?.email || 'Direct Message'
   }
@@ -213,14 +220,13 @@ export default function MessagesPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {/* Channels */}
           <div className="px-3 pt-4 pb-2">
             <div className="flex items-center justify-between px-2 mb-2">
               <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Channels</span>
               <button onClick={() => setShowNewChannel(true)} className="text-xs" style={{ color: 'rgba(42,37,32,0.3)' }}>+</button>
             </div>
             {channels.filter(c => c.type !== 'dm').map((ch) => (
-              <button key={ch.id} onClick={() => { setActiveChannel(ch); setShowDetails(false) }} className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors mb-0.5" style={{
+              <button key={ch.id} onClick={() => { setActiveChannel(ch); setShowDetails(false); setShowDeleteConfirm(false) }} className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors mb-0.5" style={{
                 backgroundColor: activeChannel?.id === ch.id ? '#FFFDB4' : 'transparent',
                 color: activeChannel?.id === ch.id ? '#2A2520' : 'rgba(42,37,32,0.6)',
                 fontWeight: activeChannel?.id === ch.id ? 600 : 400,
@@ -231,15 +237,12 @@ export default function MessagesPage() {
             ))}
           </div>
 
-          {/* Direct Messages */}
           <div className="px-3 pt-2 pb-4">
             <div className="flex items-center justify-between px-2 mb-2">
               <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Direct Messages</span>
             </div>
-
-            {/* Existing DM channels */}
             {channels.filter(c => c.type === 'dm').map((ch) => (
-              <button key={ch.id} onClick={() => { setActiveChannel(ch); setShowDetails(false) }} className="w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors mb-0.5" style={{
+              <button key={ch.id} onClick={() => { setActiveChannel(ch); setShowDetails(false); setShowDeleteConfirm(false) }} className="w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors mb-0.5" style={{
                 backgroundColor: activeChannel?.id === ch.id ? '#FFFDB4' : 'transparent',
                 color: activeChannel?.id === ch.id ? '#2A2520' : 'rgba(42,37,32,0.7)',
                 fontWeight: activeChannel?.id === ch.id ? 600 : 400,
@@ -250,8 +253,6 @@ export default function MessagesPage() {
                 {getDMDisplayName(ch.name)}
               </button>
             ))}
-
-            {/* Users to start new DM */}
             {users.filter(u => u.id !== userId).filter(u => {
               const dmName = `dm-${[userId, u.id].sort().join('-')}`
               return !channels.some(c => c.type === 'dm' && c.name === dmName)
@@ -266,7 +267,6 @@ export default function MessagesPage() {
           </div>
         </div>
 
-        {/* Quick Tip */}
         <div className="px-3 py-3 border-t border-cream">
           <div className="rounded-lg p-3" style={{ backgroundColor: '#FFFDF0' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#2A2520' }}>&#10024; Quick Tip</p>
@@ -274,7 +274,6 @@ export default function MessagesPage() {
           </div>
         </div>
 
-        {/* New Channel Form */}
         {showNewChannel && (
           <div className="px-3 py-3 border-t border-cream">
             <form onSubmit={createChannel}>
@@ -292,14 +291,11 @@ export default function MessagesPage() {
       <div className="flex-1 flex flex-col">
         {activeChannel ? (
           <>
-            {/* Channel Header */}
             <div className="px-6 py-3 border-b border-cream flex items-center justify-between">
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-semibold" style={{ color: '#2A2520' }}>
-                    {activeChannel.type === 'dm' ? channelDisplayName : '# ' + channelDisplayName}
-                  </h3>
-                </div>
+                <h3 className="text-base font-semibold" style={{ color: '#2A2520' }}>
+                  {activeChannel.type === 'dm' ? channelDisplayName : '# ' + channelDisplayName}
+                </h3>
                 <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>
                   {activeChannel.type === 'dm' ? 'Direct message' : 'Channel conversation'}
                 </p>
@@ -317,13 +313,12 @@ export default function MessagesPage() {
                     )}
                   </div>
                 )}
-                <button onClick={() => setShowDetails(!showDetails)} className="w-8 h-8 rounded-lg border border-cream flex items-center justify-center hover:bg-cream/50" style={{ color: 'rgba(42,37,32,0.4)' }}>
+                <button onClick={() => { setShowDetails(!showDetails); setShowDeleteConfirm(false) }} className="w-8 h-8 rounded-lg border border-cream flex items-center justify-center hover:bg-cream/50" style={{ color: 'rgba(42,37,32,0.4)' }}>
                   &#9776;
                 </button>
               </div>
             </div>
 
-            {/* Messages */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {messages.length === 0 && (
                 <div className="text-center py-16">
@@ -384,7 +379,6 @@ export default function MessagesPage() {
               <div ref={bottomRef} />
             </div>
 
-            {/* Message Input */}
             <div className="px-6 py-4 border-t border-cream">
               <form onSubmit={sendMessage}>
                 <div className="border border-cream rounded-xl overflow-hidden bg-white">
@@ -471,7 +465,6 @@ export default function MessagesPage() {
             </div>
           </div>
 
-          {/* Delete Channel */}
           <div className="px-5 py-4">
             {!showDeleteConfirm ? (
               <button onClick={() => setShowDeleteConfirm(true)} className="w-full py-2.5 rounded-lg border text-sm font-medium transition-colors hover:bg-red-50" style={{ borderColor: '#fecaca', color: '#ef4444' }}>
