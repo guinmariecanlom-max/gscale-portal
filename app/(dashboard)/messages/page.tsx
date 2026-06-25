@@ -38,7 +38,6 @@ const initColors = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#22c55e', '#ef4
 
 export default function MessagesPage() {
   const [channels, setChannels] = useState<Channel[]>([])
-  const [myChannelIds, setMyChannelIds] = useState<string[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null)
   const [newMessage, setNewMessage] = useState('')
@@ -57,26 +56,6 @@ export default function MessagesPage() {
   const [loading, setLoading] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const loadChannels = async (uid: string) => {
-    const { data: allChannels } = await supabase.from('channels').select('*').order('created_at', { ascending: true })
-    const { data: memberships } = await supabase.from('channel_members').select('channel_id').eq('user_id', uid)
-
-    const memberChannelIds = memberships?.map(m => m.channel_id) || []
-    setMyChannelIds(memberChannelIds)
-
-    if (allChannels) {
-      const visibleChannels = allChannels.filter(c => {
-        if (c.type === 'dm') {
-          return c.name.includes(uid)
-        }
-        return memberChannelIds.includes(c.id)
-      })
-      setChannels(visibleChannels)
-      return visibleChannels
-    }
-    return []
-  }
-
   const loadChannelMembers = async (channelId: string) => {
     const { data } = await supabase.from('channel_members').select('*, users:user_id(full_name, email, role)').eq('channel_id', channelId)
     if (data) setChannelMembers(data)
@@ -89,11 +68,16 @@ export default function MessagesPage() {
       setUserId(session.user.id)
       setUserName(session.user.user_metadata?.full_name || session.user.email || '')
 
+      const { data: allChannels } = await supabase.from('channels').select('*').order('created_at', { ascending: true })
       const { data: usersData } = await supabase.from('users').select('id, full_name, email, role')
-      if (usersData) setUsers(usersData)
 
-      const visibleChannels = await loadChannels(session.user.id)
-      if (visibleChannels.length > 0) setActiveChannel(visibleChannels[0])
+      if (allChannels && allChannels.length > 0) {
+        setChannels(allChannels)
+        setActiveChannel(allChannels[0])
+      } else if (allChannels) {
+        setChannels(allChannels)
+      }
+      if (usersData) setUsers(usersData)
       setLoading(false)
     }
     init()
@@ -151,7 +135,6 @@ export default function MessagesPage() {
     if (!error && data) {
       await supabase.from('channel_members').insert({ channel_id: data.id, user_id: userId })
       setChannels(prev => [...prev, data])
-      setMyChannelIds(prev => [...prev, data.id])
       setActiveChannel(data)
       setNewChannelName('')
       setShowNewChannel(false)
@@ -200,9 +183,6 @@ export default function MessagesPage() {
     e.preventDefault()
     if (!inviteEmail.trim() || !activeChannel) return
     setInviteStatus('sending')
-
-    const portalUrl = window.location.origin
-
     const res = await fetch('/api/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -211,10 +191,9 @@ export default function MessagesPage() {
         channelName: activeChannel.name,
         channelId: activeChannel.id,
         inviterName: userName,
-        portalUrl,
+        portalUrl: window.location.origin,
       }),
     })
-
     if (res.ok) {
       setInviteStatus('sent')
       setInviteEmail('')
@@ -353,7 +332,7 @@ export default function MessagesPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                {activeChannel.type !== 'dm' && (
+                {activeChannel.type !== 'dm' && channelMembers.length > 0 && (
                   <div className="flex -space-x-2">
                     {channelMembers.slice(0, 4).map((m) => (
                       <div key={m.id} className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 border-white" style={{ backgroundColor: getColor(m.user_id) }}>
@@ -470,7 +449,6 @@ export default function MessagesPage() {
             <p className="text-xs mt-1" style={{ color: 'rgba(42,37,32,0.4)' }}>Created {new Date(activeChannel.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
           </div>
 
-          {/* Members Section */}
           {activeChannel.type !== 'dm' && (
             <div className="px-5 py-4 border-b border-cream">
               <div className="flex items-center justify-between mb-3">
@@ -478,7 +456,6 @@ export default function MessagesPage() {
                 <button onClick={() => setShowAddMember(!showAddMember)} className="text-xs font-medium" style={{ color: '#3b82f6' }}>+ Add</button>
               </div>
 
-              {/* Add Member Dropdown */}
               {showAddMember && (
                 <div className="mb-3 p-3 rounded-lg border border-cream" style={{ backgroundColor: '#FAF8F0' }}>
                   <p className="text-xs font-medium mb-2" style={{ color: 'rgba(42,37,32,0.5)' }}>Add existing user:</p>
@@ -497,7 +474,6 @@ export default function MessagesPage() {
                 </div>
               )}
 
-              {/* Member List */}
               <div className="space-y-2">
                 {channelMembers.map(m => (
                   <div key={m.id} className="flex items-center justify-between">
@@ -517,12 +493,9 @@ export default function MessagesPage() {
             </div>
           )}
 
-          {/* Invite by Email */}
           {activeChannel.type !== 'dm' && (
             <div className="px-5 py-4 border-b border-cream">
-              <div className="flex items-center justify-between mb-3">
-                <h5 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Invite by Email</h5>
-              </div>
+              <h5 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'rgba(42,37,32,0.4)' }}>Invite by Email</h5>
               {!showInviteForm ? (
                 <button onClick={() => setShowInviteForm(true)} className="w-full py-2.5 rounded-lg border border-dashed text-sm font-medium transition-colors hover:bg-cream/30" style={{ borderColor: '#EBE3D3', color: 'rgba(42,37,32,0.5)' }}>
                   &#9993; Invite Client or Team Member
@@ -543,7 +516,6 @@ export default function MessagesPage() {
             </div>
           )}
 
-          {/* Notifications */}
           <div className="px-5 py-4 border-b border-cream">
             <div className="flex items-center justify-between">
               <span className="text-sm" style={{ color: 'rgba(42,37,32,0.6)' }}>Notifications</span>
@@ -553,7 +525,6 @@ export default function MessagesPage() {
             </div>
           </div>
 
-          {/* Delete */}
           <div className="px-5 py-4">
             {!showDeleteConfirm ? (
               <button onClick={() => setShowDeleteConfirm(true)} className="w-full py-2.5 rounded-lg border text-sm font-medium transition-colors hover:bg-red-50" style={{ borderColor: '#fecaca', color: '#ef4444' }}>
