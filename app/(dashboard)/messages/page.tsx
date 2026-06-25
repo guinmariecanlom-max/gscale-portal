@@ -24,12 +24,21 @@ type UserProfile = {
   id: string
   full_name: string
   email: string
+  role: string
+}
+
+type ChannelMember = {
+  id: string
+  channel_id: string
+  user_id: string
+  users?: { full_name: string; email: string; role: string }
 }
 
 const initColors = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#22c55e', '#ef4444', '#06b6d4', '#84cc16']
 
 export default function MessagesPage() {
   const [channels, setChannels] = useState<Channel[]>([])
+  const [myChannelIds, setMyChannelIds] = useState<string[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null)
   const [newMessage, setNewMessage] = useState('')
@@ -37,26 +46,54 @@ export default function MessagesPage() {
   const [showNewChannel, setShowNewChannel] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showInviteForm, setShowInviteForm] = useState(false)
+  const [showAddMember, setShowAddMember] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteStatus, setInviteStatus] = useState('')
   const [userId, setUserId] = useState<string | null>(null)
+  const [userName, setUserName] = useState('')
   const [users, setUsers] = useState<UserProfile[]>([])
+  const [channelMembers, setChannelMembers] = useState<ChannelMember[]>([])
   const [loading, setLoading] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  const loadChannels = async (uid: string) => {
+    const { data: allChannels } = await supabase.from('channels').select('*').order('created_at', { ascending: true })
+    const { data: memberships } = await supabase.from('channel_members').select('channel_id').eq('user_id', uid)
+
+    const memberChannelIds = memberships?.map(m => m.channel_id) || []
+    setMyChannelIds(memberChannelIds)
+
+    if (allChannels) {
+      const visibleChannels = allChannels.filter(c => {
+        if (c.type === 'dm') {
+          return c.name.includes(uid)
+        }
+        return memberChannelIds.includes(c.id)
+      })
+      setChannels(visibleChannels)
+      return visibleChannels
+    }
+    return []
+  }
+
+  const loadChannelMembers = async (channelId: string) => {
+    const { data } = await supabase.from('channel_members').select('*, users:user_id(full_name, email, role)').eq('channel_id', channelId)
+    if (data) setChannelMembers(data)
+  }
 
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession()
-      if (session) setUserId(session.user.id)
+      if (!session) return
+      setUserId(session.user.id)
+      setUserName(session.user.user_metadata?.full_name || session.user.email || '')
 
-      const { data: channelsData } = await supabase.from('channels').select('*').order('created_at', { ascending: true })
-      const { data: usersData } = await supabase.from('users').select('id, full_name, email')
-
-      if (channelsData && channelsData.length > 0) {
-        setChannels(channelsData)
-        setActiveChannel(channelsData[0])
-      } else if (channelsData) {
-        setChannels(channelsData)
-      }
+      const { data: usersData } = await supabase.from('users').select('id, full_name, email, role')
       if (usersData) setUsers(usersData)
+
+      const visibleChannels = await loadChannels(session.user.id)
+      if (visibleChannels.length > 0) setActiveChannel(visibleChannels[0])
       setLoading(false)
     }
     init()
@@ -65,15 +102,12 @@ export default function MessagesPage() {
   useEffect(() => {
     if (!activeChannel) return
     const loadMessages = async () => {
-      const { data } = await supabase
-        .from('messages')
-        .select('*, users(full_name, email)')
-        .eq('channel_id', activeChannel.id)
-        .order('created_at', { ascending: true })
+      const { data } = await supabase.from('messages').select('*, users(full_name, email)').eq('channel_id', activeChannel.id).order('created_at', { ascending: true })
       if (data) setMessages(data)
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
     }
     loadMessages()
+    loadChannelMembers(activeChannel.id)
 
     const subscription = supabase
       .channel(`messages-${activeChannel.id}`)
@@ -99,31 +133,25 @@ export default function MessagesPage() {
     if (!newMessage.trim() || !activeChannel || !userId) return
     const content = newMessage.trim()
     setNewMessage('')
-
     const me = users.find(u => u.id === userId)
     const optimisticMsg: Message = {
-      id: 'temp-' + Date.now(),
-      content,
-      sender_user_id: userId,
-      channel_id: activeChannel.id,
-      created_at: new Date().toISOString(),
-      users: me ? { full_name: me.full_name, email: me.email } : undefined,
+      id: 'temp-' + Date.now(), content, sender_user_id: userId, channel_id: activeChannel.id,
+      created_at: new Date().toISOString(), users: me ? { full_name: me.full_name, email: me.email } : undefined,
     }
     setMessages(prev => [...prev, optimisticMsg])
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
-
     const { error } = await supabase.from('messages').insert({ channel_id: activeChannel.id, sender_user_id: userId, content })
-    if (error) {
-      setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
-    }
+    if (error) setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
   }
 
   const createChannel = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newChannelName.trim()) return
+    if (!newChannelName.trim() || !userId) return
     const { data, error } = await supabase.from('channels').insert({ name: newChannelName.trim(), type: 'general' }).select().single()
     if (!error && data) {
+      await supabase.from('channel_members').insert({ channel_id: data.id, user_id: userId })
       setChannels(prev => [...prev, data])
+      setMyChannelIds(prev => [...prev, data.id])
       setActiveChannel(data)
       setNewChannelName('')
       setShowNewChannel(false)
@@ -134,10 +162,7 @@ export default function MessagesPage() {
     if (!userId) return
     const dmName = `dm-${[userId, otherUser.id].sort().join('-')}`
     const existing = channels.find(c => c.type === 'dm' && c.name === dmName)
-    if (existing) {
-      setActiveChannel(existing)
-      return
-    }
+    if (existing) { setActiveChannel(existing); return }
     const { data, error } = await supabase.from('channels').insert({ name: dmName, type: 'dm' }).select().single()
     if (!error && data) {
       setChannels(prev => [...prev, data])
@@ -157,6 +182,48 @@ export default function MessagesPage() {
     setShowDetails(false)
   }
 
+  const addMemberToChannel = async (memberId: string) => {
+    if (!activeChannel) return
+    const alreadyMember = channelMembers.some(m => m.user_id === memberId)
+    if (alreadyMember) return
+    await supabase.from('channel_members').insert({ channel_id: activeChannel.id, user_id: memberId })
+    loadChannelMembers(activeChannel.id)
+    setShowAddMember(false)
+  }
+
+  const removeMemberFromChannel = async (membershipId: string) => {
+    await supabase.from('channel_members').delete().eq('id', membershipId)
+    if (activeChannel) loadChannelMembers(activeChannel.id)
+  }
+
+  const sendInvite = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!inviteEmail.trim() || !activeChannel) return
+    setInviteStatus('sending')
+
+    const portalUrl = window.location.origin
+
+    const res = await fetch('/api/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: inviteEmail.trim(),
+        channelName: activeChannel.name,
+        channelId: activeChannel.id,
+        inviterName: userName,
+        portalUrl,
+      }),
+    })
+
+    if (res.ok) {
+      setInviteStatus('sent')
+      setInviteEmail('')
+      setTimeout(() => { setInviteStatus(''); setShowInviteForm(false) }, 2000)
+    } else {
+      setInviteStatus('error')
+    }
+  }
+
   const getDMDisplayName = (channelName: string) => {
     if (!userId) return channelName
     const raw = channelName.replace('dm-', '')
@@ -167,29 +234,14 @@ export default function MessagesPage() {
     return otherUser?.full_name || otherUser?.email || 'Direct Message'
   }
 
-  const getInitials = (name: string) => {
-    if (!name) return '?'
-    return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
-  }
-
-  const getColor = (id: string) => {
-    let hash = 0
-    for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash)
-    return initColors[Math.abs(hash) % initColors.length]
-  }
-
-  const formatTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  }
-
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr)
-    const today = new Date()
-    const yesterday = new Date()
-    yesterday.setDate(today.getDate() - 1)
-    if (d.toDateString() === today.toDateString()) return 'Today'
-    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
-    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const getInitials = (name: string) => { if (!name) return '?'; return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
+  const getColor = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = id.charCodeAt(i) + ((h << 5) - h); return initColors[Math.abs(h) % initColors.length] }
+  const formatTime = (d: string) => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const formatDate = (d: string) => {
+    const date = new Date(d); const today = new Date(); const yesterday = new Date(); yesterday.setDate(today.getDate() - 1)
+    if (date.toDateString() === today.toDateString()) return 'Today'
+    if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
+    return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
   }
 
   const groupMessagesByDate = (msgs: Message[]) => {
@@ -207,6 +259,7 @@ export default function MessagesPage() {
 
   const messageGroups = groupMessagesByDate(messages)
   const channelDisplayName = activeChannel?.type === 'dm' ? getDMDisplayName(activeChannel.name) : activeChannel?.name || ''
+  const nonMemberUsers = users.filter(u => !channelMembers.some(m => m.user_id === u.id))
 
   return (
     <div className="flex rounded-xl border border-cream overflow-hidden bg-white" style={{ height: 'calc(100vh - 130px)' }}>
@@ -223,7 +276,6 @@ export default function MessagesPage() {
           <div className="px-3 pt-4 pb-2">
             <div className="flex items-center justify-between px-2 mb-2">
               <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Channels</span>
-              <button onClick={() => setShowNewChannel(true)} className="text-xs" style={{ color: 'rgba(42,37,32,0.3)' }}>+</button>
             </div>
             {channels.filter(c => c.type !== 'dm').map((ch) => (
               <button key={ch.id} onClick={() => { setActiveChannel(ch); setShowDetails(false); setShowDeleteConfirm(false) }} className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors mb-0.5" style={{
@@ -270,7 +322,7 @@ export default function MessagesPage() {
         <div className="px-3 py-3 border-t border-cream">
           <div className="rounded-lg p-3" style={{ backgroundColor: '#FFFDF0' }}>
             <p className="text-xs font-medium mb-1" style={{ color: '#2A2520' }}>&#10024; Quick Tip</p>
-            <p className="text-xs" style={{ color: 'rgba(42,37,32,0.5)' }}>Click a name to start a direct message.</p>
+            <p className="text-xs" style={{ color: 'rgba(42,37,32,0.5)' }}>Click a name to start a DM. Use channels for group conversations.</p>
           </div>
         </div>
 
@@ -297,25 +349,23 @@ export default function MessagesPage() {
                   {activeChannel.type === 'dm' ? channelDisplayName : '# ' + channelDisplayName}
                 </h3>
                 <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>
-                  {activeChannel.type === 'dm' ? 'Direct message' : 'Channel conversation'}
+                  {activeChannel.type === 'dm' ? 'Direct message' : channelMembers.length + ' members'}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 {activeChannel.type !== 'dm' && (
                   <div className="flex -space-x-2">
-                    {users.slice(0, 4).map((u) => (
-                      <div key={u.id} className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 border-white" style={{ backgroundColor: getColor(u.id) }}>
-                        {getInitials(u.full_name || u.email)}
+                    {channelMembers.slice(0, 4).map((m) => (
+                      <div key={m.id} className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 border-white" style={{ backgroundColor: getColor(m.user_id) }}>
+                        {getInitials(m.users?.full_name || m.users?.email || '?')}
                       </div>
                     ))}
-                    {users.length > 4 && (
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium border-2 border-white" style={{ backgroundColor: '#EBE3D3', color: 'rgba(42,37,32,0.5)' }}>+{users.length - 4}</div>
+                    {channelMembers.length > 4 && (
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium border-2 border-white" style={{ backgroundColor: '#EBE3D3', color: 'rgba(42,37,32,0.5)' }}>+{channelMembers.length - 4}</div>
                     )}
                   </div>
                 )}
-                <button onClick={() => { setShowDetails(!showDetails); setShowDeleteConfirm(false) }} className="w-8 h-8 rounded-lg border border-cream flex items-center justify-center hover:bg-cream/50" style={{ color: 'rgba(42,37,32,0.4)' }}>
-                  &#9776;
-                </button>
+                <button onClick={() => { setShowDetails(!showDetails); setShowDeleteConfirm(false) }} className="w-8 h-8 rounded-lg border border-cream flex items-center justify-center hover:bg-cream/50" style={{ color: 'rgba(42,37,32,0.4)' }}>&#9776;</button>
               </div>
             </div>
 
@@ -336,30 +386,22 @@ export default function MessagesPage() {
                 <div key={group.date}>
                   <div className="flex items-center gap-4 my-6">
                     <div className="flex-1 h-px" style={{ backgroundColor: '#EBE3D3' }} />
-                    <span className="text-xs font-medium px-3 py-1 rounded-full border border-cream" style={{ color: 'rgba(42,37,32,0.5)', backgroundColor: '#FFFFFF' }}>
-                      {formatDate(group.messages[0].created_at)}
-                    </span>
+                    <span className="text-xs font-medium px-3 py-1 rounded-full border border-cream" style={{ color: 'rgba(42,37,32,0.5)', backgroundColor: '#FFFFFF' }}>{formatDate(group.messages[0].created_at)}</span>
                     <div className="flex-1 h-px" style={{ backgroundColor: '#EBE3D3' }} />
                   </div>
-
                   {group.messages.map((msg, idx) => {
                     const senderName = msg.users?.full_name || msg.users?.email || 'Unknown'
                     const prevMsg = idx > 0 ? group.messages[idx - 1] : null
                     const sameAuthor = prevMsg && prevMsg.sender_user_id === msg.sender_user_id
                     const timeDiff = prevMsg ? (new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime()) / 60000 : 999
                     const showHeader = !sameAuthor || timeDiff > 5
-
                     return (
                       <div key={msg.id} className={`group flex gap-3 px-2 py-1 rounded-lg hover:bg-cream-light/50 transition-colors ${showHeader ? 'mt-4' : 'mt-0.5'}`}>
                         {showHeader ? (
-                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5" style={{ backgroundColor: getColor(msg.sender_user_id) }}>
-                            {getInitials(senderName)}
-                          </div>
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5" style={{ backgroundColor: getColor(msg.sender_user_id) }}>{getInitials(senderName)}</div>
                         ) : (
                           <div className="w-9 flex-shrink-0 flex items-center justify-center">
-                            <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'rgba(42,37,32,0.3)' }}>
-                              {formatTime(msg.created_at)}
-                            </span>
+                            <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'rgba(42,37,32,0.3)' }}>{formatTime(msg.created_at)}</span>
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
@@ -401,9 +443,7 @@ export default function MessagesPage() {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#FAF8F0' }}>
-                <span className="text-2xl">&#128172;</span>
-              </div>
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#FAF8F0' }}><span className="text-2xl">&#128172;</span></div>
               <h3 className="text-lg font-semibold mb-1" style={{ color: '#2A2520' }}>Start a conversation</h3>
               <p className="text-sm mb-4" style={{ color: 'rgba(42,37,32,0.4)' }}>Create a channel or click a name to send a DM.</p>
               <button onClick={() => setShowNewChannel(true)} className="px-4 py-2.5 rounded-lg text-sm font-medium text-white" style={{ backgroundColor: '#2A2520' }}>Create Channel</button>
@@ -414,7 +454,7 @@ export default function MessagesPage() {
 
       {/* Details Sidebar */}
       {showDetails && activeChannel && (
-        <div className="w-72 border-l border-cream flex flex-col overflow-y-auto bg-white">
+        <div className="w-80 border-l border-cream flex flex-col overflow-y-auto bg-white">
           <div className="px-5 py-4 border-b border-cream flex items-center justify-between">
             <h3 className="text-sm font-semibold" style={{ color: '#2A2520' }}>{activeChannel.type === 'dm' ? 'Conversation Details' : 'Channel Details'}</h3>
             <button onClick={() => setShowDetails(false)} className="text-lg" style={{ color: 'rgba(42,37,32,0.3)' }}>x</button>
@@ -427,35 +467,83 @@ export default function MessagesPage() {
             <h4 className="text-base font-semibold" style={{ color: '#2A2520' }}>
               {activeChannel.type === 'dm' ? channelDisplayName : '# ' + channelDisplayName}
             </h4>
-            <p className="text-xs mt-1" style={{ color: 'rgba(42,37,32,0.4)' }}>Created on {new Date(activeChannel.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+            <p className="text-xs mt-1" style={{ color: 'rgba(42,37,32,0.4)' }}>Created {new Date(activeChannel.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
           </div>
 
-          <div className="px-5 py-4 border-b border-cream">
-            <h5 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: 'rgba(42,37,32,0.4)' }}>About</h5>
-            <p className="text-sm" style={{ color: 'rgba(42,37,32,0.6)' }}>
-              {activeChannel.type === 'dm' ? 'Private conversation with ' + channelDisplayName : 'All discussions related to ' + channelDisplayName + '.'}
-            </p>
-          </div>
-
+          {/* Members Section */}
           {activeChannel.type !== 'dm' && (
             <div className="px-5 py-4 border-b border-cream">
               <div className="flex items-center justify-between mb-3">
-                <h5 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Members</h5>
-                <span className="text-xs font-medium" style={{ color: 'rgba(42,37,32,0.4)' }}>{users.length}</span>
+                <h5 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Members ({channelMembers.length})</h5>
+                <button onClick={() => setShowAddMember(!showAddMember)} className="text-xs font-medium" style={{ color: '#3b82f6' }}>+ Add</button>
               </div>
-              <div className="flex -space-x-2">
-                {users.slice(0, 6).map((u) => (
-                  <div key={u.id} className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 border-white" style={{ backgroundColor: getColor(u.id) }}>
-                    {getInitials(u.full_name || u.email)}
+
+              {/* Add Member Dropdown */}
+              {showAddMember && (
+                <div className="mb-3 p-3 rounded-lg border border-cream" style={{ backgroundColor: '#FAF8F0' }}>
+                  <p className="text-xs font-medium mb-2" style={{ color: 'rgba(42,37,32,0.5)' }}>Add existing user:</p>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {nonMemberUsers.map(u => (
+                      <button key={u.id} onClick={() => addMemberToChannel(u.id)} className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded hover:bg-cream/50 transition-colors">
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: getColor(u.id) }}>{getInitials(u.full_name || u.email)}</div>
+                        <div>
+                          <p className="text-xs font-medium" style={{ color: '#2A2520' }}>{u.full_name || u.email}</p>
+                          <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>{u.role}</p>
+                        </div>
+                      </button>
+                    ))}
+                    {nonMemberUsers.length === 0 && <p className="text-xs text-center py-2" style={{ color: 'rgba(42,37,32,0.3)' }}>All users are members</p>}
+                  </div>
+                </div>
+              )}
+
+              {/* Member List */}
+              <div className="space-y-2">
+                {channelMembers.map(m => (
+                  <div key={m.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: getColor(m.user_id) }}>{getInitials(m.users?.full_name || m.users?.email || '?')}</div>
+                      <div>
+                        <p className="text-xs font-medium" style={{ color: '#2A2520' }}>{m.users?.full_name || m.users?.email}</p>
+                        <p className="text-xs capitalize" style={{ color: 'rgba(42,37,32,0.35)' }}>{m.users?.role}</p>
+                      </div>
+                    </div>
+                    {m.user_id !== userId && (
+                      <button onClick={() => removeMemberFromChannel(m.id)} className="text-xs px-2 py-1 rounded hover:bg-red-50" style={{ color: '#ef4444' }}>x</button>
+                    )}
                   </div>
                 ))}
-                {users.length > 6 && (
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium border-2 border-white" style={{ backgroundColor: '#EBE3D3', color: 'rgba(42,37,32,0.5)' }}>+{users.length - 6}</div>
-                )}
               </div>
             </div>
           )}
 
+          {/* Invite by Email */}
+          {activeChannel.type !== 'dm' && (
+            <div className="px-5 py-4 border-b border-cream">
+              <div className="flex items-center justify-between mb-3">
+                <h5 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Invite by Email</h5>
+              </div>
+              {!showInviteForm ? (
+                <button onClick={() => setShowInviteForm(true)} className="w-full py-2.5 rounded-lg border border-dashed text-sm font-medium transition-colors hover:bg-cream/30" style={{ borderColor: '#EBE3D3', color: 'rgba(42,37,32,0.5)' }}>
+                  &#9993; Invite Client or Team Member
+                </button>
+              ) : (
+                <form onSubmit={sendInvite}>
+                  <input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="email@example.com" className="w-full px-3 py-2 border border-cream rounded-lg text-sm mb-2 focus:outline-none" required autoFocus />
+                  {inviteStatus === 'sent' && <p className="text-xs mb-2" style={{ color: '#16a34a' }}>Invite sent!</p>}
+                  {inviteStatus === 'error' && <p className="text-xs mb-2" style={{ color: '#ef4444' }}>Failed to send. Check email.</p>}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { setShowInviteForm(false); setInviteStatus('') }} className="flex-1 py-2 rounded-lg border border-cream text-xs" style={{ color: 'rgba(42,37,32,0.5)' }}>Cancel</button>
+                    <button type="submit" disabled={inviteStatus === 'sending'} className="flex-1 py-2 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ backgroundColor: '#2A2520' }}>
+                      {inviteStatus === 'sending' ? 'Sending...' : 'Send Invite'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
+
+          {/* Notifications */}
           <div className="px-5 py-4 border-b border-cream">
             <div className="flex items-center justify-between">
               <span className="text-sm" style={{ color: 'rgba(42,37,32,0.6)' }}>Notifications</span>
@@ -465,6 +553,7 @@ export default function MessagesPage() {
             </div>
           </div>
 
+          {/* Delete */}
           <div className="px-5 py-4">
             {!showDeleteConfirm ? (
               <button onClick={() => setShowDeleteConfirm(true)} className="w-full py-2.5 rounded-lg border text-sm font-medium transition-colors hover:bg-red-50" style={{ borderColor: '#fecaca', color: '#ef4444' }}>
@@ -472,7 +561,7 @@ export default function MessagesPage() {
               </button>
             ) : (
               <div>
-                <p className="text-sm mb-3" style={{ color: '#ef4444' }}>Delete this {activeChannel.type === 'dm' ? 'conversation' : 'channel'} and all messages? This cannot be undone.</p>
+                <p className="text-sm mb-3" style={{ color: '#ef4444' }}>Delete and remove all messages? This cannot be undone.</p>
                 <div className="flex gap-2">
                   <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-2 rounded-lg border border-cream text-sm" style={{ color: 'rgba(42,37,32,0.5)' }}>Cancel</button>
                   <button onClick={deleteChannel} className="flex-1 py-2 rounded-lg text-sm font-medium text-white" style={{ backgroundColor: '#ef4444' }}>Delete</button>
