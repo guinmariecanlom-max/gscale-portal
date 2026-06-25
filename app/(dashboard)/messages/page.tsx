@@ -86,7 +86,7 @@ export default function MessagesPage() {
   useEffect(() => {
     if (!activeChannel) return
     const loadMessages = async () => {
-      const { data } = await supabase.from('messages').select('*, users(full_name, email)').eq('channel_id', activeChannel.id).order('created_at', { ascending: true })
+      const { data } = await supabase.from('messages').select('*, users:sender_user_id(full_name, email)').eq('channel_id', activeChannel.id).order('created_at', { ascending: true })
       if (data) setMessages(data)
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
     }
