@@ -122,9 +122,13 @@ export default function MessagesPage() {
 
   const uploadMessageFile = async (file: File): Promise<{ name: string; url: string; path: string } | null> => {
     if (!activeChannel) return null
-    const filePath = `messages/${activeChannel.id}/${Date.now()}-${file.name}`
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const filePath = `messages/${activeChannel.id}/${Date.now()}-${safeName}`
     const { error } = await supabase.storage.from('files').upload(filePath, file)
-    if (error) return null
+    if (error) {
+      console.error('Upload error:', error)
+      return null
+    }
     const { data } = supabase.storage.from('files').getPublicUrl(filePath)
     return { name: file.name, url: data.publicUrl, path: filePath }
   }
@@ -167,7 +171,7 @@ export default function MessagesPage() {
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if ((!newMessage.trim() && pendingFiles.length === 0) || !activeChannel || !userId) return
-    const content = newMessage.trim() || (pendingFiles.length > 0 ? '📎 Shared files' : '')
+    const content = newMessage.trim() || (pendingFiles.length > 0 ? 'Shared files' : '')
     const attachmentUrls = pendingFiles.map(f => JSON.stringify({ name: f.name, url: f.url }))
     setNewMessage('')
     setPendingFiles([])
@@ -205,8 +209,7 @@ export default function MessagesPage() {
   const insertMention = (user: UserProfile) => {
     const lastAt = newMessage.lastIndexOf('@')
     const before = newMessage.substring(0, lastAt)
-    const displayName = user.full_name || user.email
-    setNewMessage(before + '@' + displayName + ' ')
+    setNewMessage(before + '@' + (user.full_name || user.email) + ' ')
     setShowMentionList(false)
     messageInputRef.current?.focus()
   }
@@ -281,8 +284,7 @@ export default function MessagesPage() {
     const raw = channelName.replace('dm-', '')
     const id1 = raw.substring(0, 36); const id2 = raw.substring(37)
     const otherId = id1 === userId ? id2 : id1
-    const otherUser = users.find(u => u.id === otherId)
-    return otherUser?.full_name || otherUser?.email || 'Direct Message'
+    return users.find(u => u.id === otherId)?.full_name || users.find(u => u.id === otherId)?.email || 'Direct Message'
   }
 
   const getInitials = (name: string) => { if (!name) return '?'; return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
@@ -294,11 +296,7 @@ export default function MessagesPage() {
     if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
     return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
   }
-
-  const parseAttachment = (att: string) => {
-    try { return JSON.parse(att) as { name: string; url: string } } catch { return null }
-  }
-
+  const parseAttachment = (att: string) => { try { return JSON.parse(att) as { name: string; url: string } } catch { return null } }
   const isImageUrl = (name: string) => /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(name)
 
   const renderContent = (content: string) => {
@@ -307,9 +305,7 @@ export default function MessagesPage() {
       if (part.startsWith('@')) {
         const name = part.substring(1).trim()
         const mentioned = users.find(u => (u.full_name || u.email).toLowerCase() === name.toLowerCase())
-        if (mentioned) {
-          return <span key={i} className="px-1 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: '#FFFDB4', color: '#2A2520' }}>{part}</span>
-        }
+        if (mentioned) return <span key={i} className="px-1 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: '#FFFDB4', color: '#2A2520' }}>{part}</span>
       }
       return <span key={i}>{part}</span>
     })
@@ -335,7 +331,7 @@ export default function MessagesPage() {
 
   return (
     <div className="flex rounded-xl border border-cream overflow-hidden bg-white" style={{ height: 'calc(100vh - 130px)' }}>
-      {/* Channel Sidebar */}
+      {/* Sidebar */}
       <div className="w-64 border-r border-cream flex flex-col" style={{ backgroundColor: '#FAF8F0' }}>
         <div className="px-4 py-4 border-b border-cream flex items-center justify-between">
           <span className="text-sm font-semibold" style={{ color: '#2A2520' }}>GScale Agency</span>
@@ -348,9 +344,7 @@ export default function MessagesPage() {
             <div className="px-2 mb-2"><span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Channels</span></div>
             {channels.filter(c => c.type !== 'dm').map((ch) => (
               <button key={ch.id} onClick={() => { setActiveChannel(ch); setShowDetails(false); setShowDeleteConfirm(false) }} className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors mb-0.5" style={{
-                backgroundColor: activeChannel?.id === ch.id ? '#FFFDB4' : 'transparent',
-                color: activeChannel?.id === ch.id ? '#2A2520' : 'rgba(42,37,32,0.6)',
-                fontWeight: activeChannel?.id === ch.id ? 600 : 400,
+                backgroundColor: activeChannel?.id === ch.id ? '#FFFDB4' : 'transparent', color: activeChannel?.id === ch.id ? '#2A2520' : 'rgba(42,37,32,0.6)', fontWeight: activeChannel?.id === ch.id ? 600 : 400,
               }}><span style={{ color: 'rgba(42,37,32,0.35)' }}>#</span>{ch.name}</button>
             ))}
           </div>
@@ -358,9 +352,7 @@ export default function MessagesPage() {
             <div className="px-2 mb-2"><span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Direct Messages</span></div>
             {channels.filter(c => c.type === 'dm').map((ch) => (
               <button key={ch.id} onClick={() => { setActiveChannel(ch); setShowDetails(false); setShowDeleteConfirm(false) }} className="w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors mb-0.5" style={{
-                backgroundColor: activeChannel?.id === ch.id ? '#FFFDB4' : 'transparent',
-                color: activeChannel?.id === ch.id ? '#2A2520' : 'rgba(42,37,32,0.7)',
-                fontWeight: activeChannel?.id === ch.id ? 600 : 400,
+                backgroundColor: activeChannel?.id === ch.id ? '#FFFDB4' : 'transparent', color: activeChannel?.id === ch.id ? '#2A2520' : 'rgba(42,37,32,0.7)', fontWeight: activeChannel?.id === ch.id ? 600 : 400,
               }}>
                 <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: getColor(ch.id) }}>{getInitials(getDMDisplayName(ch.name))}</div>
                 {getDMDisplayName(ch.name)}
@@ -409,7 +401,6 @@ export default function MessagesPage() {
               </div>
             </div>
 
-            {/* Messages List */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {messages.length === 0 && (
                 <div className="text-center py-16">
@@ -448,7 +439,6 @@ export default function MessagesPage() {
                             </div>
                           )}
                           <p className="text-sm leading-relaxed" style={{ color: 'rgba(42,37,32,0.85)' }}>{renderContent(msg.content)}</p>
-                          {/* Attachments */}
                           {msg.attachments && msg.attachments.length > 0 && (
                             <div className="flex flex-wrap gap-2 mt-2">
                               {msg.attachments.map((att, ai) => {
@@ -484,16 +474,13 @@ export default function MessagesPage() {
               <div ref={bottomRef} />
             </div>
 
-            {/* Message Input */}
+            {/* Input Area */}
             <div className="px-6 py-4 border-t border-cream relative">
-              {/* Pending Files Preview */}
               {pendingFiles.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-3">
                   {pendingFiles.map(f => (
                     <div key={f.path} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-cream" style={{ backgroundColor: '#FAF8F0' }}>
-                      {isImageUrl(f.name) ? (
-                        <img src={f.url} alt={f.name} className="w-8 h-8 rounded object-cover" />
-                      ) : (
+                      {isImageUrl(f.name) ? <img src={f.url} alt={f.name} className="w-8 h-8 rounded object-cover" /> : (
                         <div className="w-8 h-8 rounded flex items-center justify-center" style={{ backgroundColor: '#EBE3D3' }}>
                           <span className="text-xs font-bold" style={{ color: 'rgba(42,37,32,0.4)' }}>{(f.name.split('.').pop() || '').toUpperCase().slice(0, 3)}</span>
                         </div>
@@ -505,7 +492,6 @@ export default function MessagesPage() {
                 </div>
               )}
 
-              {/* @Mention Dropdown */}
               {showMentionList && filteredMentionUsers.length > 0 && (
                 <div className="absolute bottom-full left-6 mb-2 w-64 bg-white rounded-xl border border-cream shadow-lg overflow-hidden z-50">
                   <div className="px-3 py-2 border-b border-cream"><span className="text-xs font-semibold" style={{ color: 'rgba(42,37,32,0.4)' }}>Mention someone</span></div>
@@ -514,14 +500,12 @@ export default function MessagesPage() {
                       <button key={u.id} onClick={() => insertMention(u)} className="w-full text-left flex items-center gap-2 px-3 py-2 hover:bg-cream/50 transition-colors">
                         <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: getColor(u.id) }}>{getInitials(u.full_name || u.email)}</div>
                         <span className="text-sm" style={{ color: '#2A2520' }}>{u.full_name || u.email}</span>
-                        <span className="text-xs ml-auto capitalize" style={{ color: 'rgba(42,37,32,0.3)' }}>{u.role}</span>
                       </button>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Emoji Picker */}
               {showEmojiPicker && (
                 <div className="absolute bottom-full left-6 mb-2 w-80 bg-white rounded-xl border border-cream shadow-lg z-50 p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -530,7 +514,7 @@ export default function MessagesPage() {
                   </div>
                   <div className="grid grid-cols-10 gap-1 max-h-40 overflow-y-auto">
                     {emojiList.map((emoji, i) => (
-                      <button key={i} onClick={() => insertEmoji(emoji)} className="w-7 h-7 flex items-center justify-center rounded hover:bg-cream/50 text-base transition-colors">{emoji}</button>
+                      <button key={i} onClick={() => insertEmoji(emoji)} className="w-7 h-7 flex items-center justify-center rounded hover:bg-cream/50 text-base">{emoji}</button>
                     ))}
                   </div>
                 </div>
@@ -538,22 +522,11 @@ export default function MessagesPage() {
 
               <form onSubmit={sendMessage}>
                 <div className="border border-cream rounded-xl overflow-hidden bg-white">
-                  <input
-                    ref={messageInputRef}
-                    type="text"
-                    value={newMessage}
-                    onChange={(e) => handleMessageInput(e.target.value)}
-                    onPaste={handlePaste}
-                    placeholder={activeChannel.type === 'dm' ? `Message ${channelDisplayName}` : `Message #${channelDisplayName}`}
-                    className="w-full px-4 py-3 text-sm focus:outline-none"
-                    style={{ color: '#2A2520' }}
-                  />
+                  <input ref={messageInputRef} type="text" value={newMessage} onChange={(e) => handleMessageInput(e.target.value)} onPaste={handlePaste} placeholder={activeChannel.type === 'dm' ? `Message ${channelDisplayName}` : `Message #${channelDisplayName}`} className="w-full px-4 py-3 text-sm focus:outline-none" style={{ color: '#2A2520' }} />
                   <div className="flex items-center justify-between px-3 py-2 border-t border-cream/50">
                     <div className="flex items-center gap-1">
-                      <button type="button" onClick={() => fileInputRef.current?.click()} className="w-8 h-8 rounded flex items-center justify-center hover:bg-cream/50" style={{ color: uploading ? '#f59e0b' : 'rgba(42,37,32,0.35)' }}>
-                        <span className="text-lg">{uploading ? '...' : '+'}</span>
-                      </button>
-                      <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" accept="*/*" />
+                      <button type="button" onClick={() => fileInputRef.current?.click()} className="w-8 h-8 rounded flex items-center justify-center hover:bg-cream/50" style={{ color: uploading ? '#f59e0b' : 'rgba(42,37,32,0.35)' }}><span className="text-lg">{uploading ? '...' : '+'}</span></button>
+                      <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
                       <button type="button" className="w-8 h-8 rounded flex items-center justify-center hover:bg-cream/50" style={{ color: 'rgba(42,37,32,0.35)' }}><span className="text-sm font-bold">Aa</span></button>
                       <button type="button" onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowMentionList(false) }} className="w-8 h-8 rounded flex items-center justify-center hover:bg-cream/50" style={{ color: showEmojiPicker ? '#f59e0b' : 'rgba(42,37,32,0.35)' }}>😊</button>
                       <button type="button" onClick={() => { handleMessageInput(newMessage + '@'); messageInputRef.current?.focus() }} className="w-8 h-8 rounded flex items-center justify-center hover:bg-cream/50" style={{ color: showMentionList ? '#f59e0b' : 'rgba(42,37,32,0.35)' }}>@</button>
@@ -578,7 +551,7 @@ export default function MessagesPage() {
         )}
       </div>
 
-      {/* Details Sidebar */}
+      {/* Details Panel */}
       {showDetails && activeChannel && (
         <div className="w-80 border-l border-cream flex flex-col overflow-y-auto bg-white">
           <div className="px-5 py-4 border-b border-cream flex items-center justify-between">
@@ -631,7 +604,7 @@ export default function MessagesPage() {
             <div className="px-5 py-4 border-b border-cream">
               <h5 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'rgba(42,37,32,0.4)' }}>Invite by Email</h5>
               {!showInviteForm ? (
-                <button onClick={() => setShowInviteForm(true)} className="w-full py-2.5 rounded-lg border border-dashed text-sm font-medium hover:bg-cream/30" style={{ borderColor: '#EBE3D3', color: 'rgba(42,37,32,0.5)' }}>&#9993; Invite Client or Team Member</button>
+                <button onClick={() => setShowInviteForm(true)} className="w-full py-2.5 rounded-lg border border-dashed text-sm font-medium hover:bg-cream/30" style={{ borderColor: '#EBE3D3', color: 'rgba(42,37,32,0.5)' }}>Invite Client or Team Member</button>
               ) : (
                 <form onSubmit={sendInvite}>
                   <input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="email@example.com" className="w-full px-3 py-2 border border-cream rounded-lg text-sm mb-2 focus:outline-none" required autoFocus />
