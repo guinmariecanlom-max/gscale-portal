@@ -37,6 +37,14 @@ type Comment = {
   users?: { full_name: string; email: string }
 }
 
+type LinkItem = {
+  id: string
+  file_name: string
+  file_path: string
+  file_type: string | null
+  created_at: string
+}
+
 const columns = [
   { key: 'todo', label: 'To Do' },
   { key: 'in_progress', label: 'In Progress' },
@@ -45,28 +53,17 @@ const columns = [
 ]
 
 const priorityColors: Record<string, string> = {
-  low: '#94a3b8',
-  medium: '#f59e0b',
-  high: '#f97316',
-  urgent: '#ef4444',
+  low: '#94a3b8', medium: '#f59e0b', high: '#f97316', urgent: '#ef4444',
 }
 
 const serviceLabels: Record<string, string> = {
-  email_marketing: 'Email',
-  meta_ads: 'Meta Ads',
-  google_ads: 'Google Ads',
-  social_media: 'Social',
-  strategy: 'Strategy',
-  admin: 'Admin',
+  email_marketing: 'Email', meta_ads: 'Meta Ads', google_ads: 'Google Ads',
+  social_media: 'Social', strategy: 'Strategy', admin: 'Admin',
 }
 
 const serviceColors: Record<string, string> = {
-  email_marketing: '#8b5cf6',
-  meta_ads: '#3b82f6',
-  google_ads: '#22c55e',
-  social_media: '#ec4899',
-  strategy: '#f59e0b',
-  admin: '#6b7280',
+  email_marketing: '#8b5cf6', meta_ads: '#3b82f6', google_ads: '#22c55e',
+  social_media: '#ec4899', strategy: '#f59e0b', admin: '#6b7280',
 }
 
 const initColors = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#22c55e', '#ef4444', '#06b6d4', '#84cc16']
@@ -88,8 +85,12 @@ export default function TasksPage() {
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
+  const [taskLinks, setTaskLinks] = useState<LinkItem[]>([])
   const [newComment, setNewComment] = useState('')
   const [editing, setEditing] = useState(false)
+  const [showAddLink, setShowAddLink] = useState(false)
+  const [linkName, setLinkName] = useState('')
+  const [linkUrl, setLinkUrl] = useState('')
   const [editForm, setEditForm] = useState({
     title: '', description: '', status: '', priority: '', service_area: '', due_date: '', assignee_user_id: '', client_id: '',
   })
@@ -117,15 +118,22 @@ export default function TasksPage() {
     if (data) setComments(data)
   }
 
+  const loadTaskLinks = async (taskId: string) => {
+    const { data } = await supabase.from('files').select('id, file_name, file_path, file_type, created_at').eq('task_id', taskId).eq('file_type', 'link').order('created_at', { ascending: false })
+    if (data) setTaskLinks(data)
+  }
+
   const openTask = (task: Task) => {
     setSelectedTask(task)
     setEditing(false)
+    setShowAddLink(false)
     setEditForm({
       title: task.title, description: task.description || '', status: task.status, priority: task.priority,
       service_area: task.service_area, due_date: task.due_date ? task.due_date.split('T')[0] : '',
       assignee_user_id: task.assignee_user_id || '', client_id: task.client_id,
     })
     loadComments(task.id)
+    loadTaskLinks(task.id)
   }
 
   const saveEdit = async () => {
@@ -146,6 +154,7 @@ export default function TasksPage() {
   const deleteTask = async () => {
     if (!selectedTask) return
     await supabase.from('task_comments').delete().eq('task_id', selectedTask.id)
+    await supabase.from('files').delete().eq('task_id', selectedTask.id)
     await supabase.from('tasks').delete().eq('id', selectedTask.id)
     setSelectedTask(null)
     loadData()
@@ -157,6 +166,26 @@ export default function TasksPage() {
     await supabase.from('task_comments').insert({ task_id: selectedTask.id, user_id: userId, content: newComment.trim() })
     setNewComment('')
     loadComments(selectedTask.id)
+  }
+
+  const addLink = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!linkUrl.trim() || !selectedTask || !userId) return
+    let url = linkUrl.trim()
+    if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url
+    await supabase.from('files').insert({
+      client_id: selectedTask.client_id, task_id: selectedTask.id, uploaded_by: userId,
+      file_name: linkName.trim() || url, file_path: url, file_type: 'link', file_size: 0, category: 'other',
+    })
+    setLinkName('')
+    setLinkUrl('')
+    setShowAddLink(false)
+    loadTaskLinks(selectedTask.id)
+  }
+
+  const deleteLink = async (id: string) => {
+    await supabase.from('files').delete().eq('id', id)
+    if (selectedTask) loadTaskLinks(selectedTask.id)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -189,6 +218,7 @@ export default function TasksPage() {
   const getColor = (id: string) => { let h = 0; for (let i = 0; i < id.length; i++) h = id.charCodeAt(i) + ((h << 5) - h); return initColors[Math.abs(h) % initColors.length] }
   const getUserName = (id: string | null) => { if (!id) return 'Unassigned'; const u = users.find(x => x.id === id); return u?.full_name || u?.email || 'Unknown' }
   const formatTime = (d: string) => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const getLinkDomain = (url: string) => { try { return new URL(url).hostname.replace('www.', '') } catch { return url } }
 
   const filteredTasks = tasks.filter(t => {
     if (filterClient !== 'all' && t.client_id !== filterClient) return false
@@ -202,7 +232,6 @@ export default function TasksPage() {
   return (
     <div className="flex gap-0">
       <div className={`${selectedTask ? 'flex-1' : 'w-full'} transition-all`}>
-        {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-2xl font-bold text-ink">Tasks</h2>
@@ -217,7 +246,6 @@ export default function TasksPage() {
           </div>
         </div>
 
-        {/* Filters */}
         <div className="flex gap-3 mb-4 flex-wrap">
           <select value={filterClient} onChange={(e) => setFilterClient(e.target.value)} className="px-3 py-2 border border-cream rounded-lg text-sm bg-white" style={{ color: '#2A2520' }}>
             <option value="all">All Clients</option>
@@ -233,13 +261,10 @@ export default function TasksPage() {
             {users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
           </select>
           {(filterClient !== 'all' || filterService !== 'all' || filterAssignee !== 'all') && (
-            <button onClick={() => { setFilterClient('all'); setFilterService('all'); setFilterAssignee('all') }} className="px-3 py-2 rounded-lg text-xs font-medium hover:bg-cream/50" style={{ color: '#ef4444' }}>
-              Clear filters
-            </button>
+            <button onClick={() => { setFilterClient('all'); setFilterService('all'); setFilterAssignee('all') }} className="px-3 py-2 rounded-lg text-xs font-medium hover:bg-cream/50" style={{ color: '#ef4444' }}>Clear filters</button>
           )}
         </div>
 
-        {/* Kanban */}
         {view === 'kanban' ? (
           <div className={`grid ${selectedTask ? 'grid-cols-2' : 'grid-cols-4'} gap-4`}>
             {columns.map((col) => {
@@ -252,9 +277,7 @@ export default function TasksPage() {
                     <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: '#EBE3D3', color: '#2A2520' }}>{colTasks.length}</span>
                   </div>
                   <div className="p-3 space-y-3 min-h-[200px]">
-                    {colTasks.length === 0 && (
-                      <p className="text-xs text-center py-8" style={{ color: 'rgba(42,37,32,0.25)' }}>{isOver ? 'Drop here' : 'No tasks'}</p>
-                    )}
+                    {colTasks.length === 0 && <p className="text-xs text-center py-8" style={{ color: 'rgba(42,37,32,0.25)' }}>{isOver ? 'Drop here' : 'No tasks'}</p>}
                     {colTasks.map((task) => {
                       const assignee = users.find(u => u.id === task.assignee_user_id)
                       return (
@@ -350,9 +373,7 @@ export default function TasksPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium mb-1" style={{ color: 'rgba(42,37,32,0.4)' }}>Status</label>
-                    <select value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} className="w-full px-3 py-2 border border-cream rounded-lg text-sm bg-white">
-                      {columns.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
-                    </select>
+                    <select value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} className="w-full px-3 py-2 border border-cream rounded-lg text-sm bg-white">{columns.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}</select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium mb-1" style={{ color: 'rgba(42,37,32,0.4)' }}>Priority</label>
@@ -375,15 +396,12 @@ export default function TasksPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'rgba(42,37,32,0.4)' }}>Client</label>
-                  <select value={editForm.client_id} onChange={(e) => setEditForm({ ...editForm, client_id: e.target.value })} className="w-full px-3 py-2 border border-cream rounded-lg text-sm bg-white">
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.business_name}</option>)}
-                  </select>
+                  <select value={editForm.client_id} onChange={(e) => setEditForm({ ...editForm, client_id: e.target.value })} className="w-full px-3 py-2 border border-cream rounded-lg text-sm bg-white">{clients.map(c => <option key={c.id} value={c.id}>{c.business_name}</option>)}</select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1" style={{ color: 'rgba(42,37,32,0.4)' }}>Assignee</label>
                   <select value={editForm.assignee_user_id} onChange={(e) => setEditForm({ ...editForm, assignee_user_id: e.target.value })} className="w-full px-3 py-2 border border-cream rounded-lg text-sm bg-white">
-                    <option value="">Unassigned</option>
-                    {users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
+                    <option value="">Unassigned</option>{users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
                   </select>
                 </div>
                 <div className="flex gap-2 pt-2">
@@ -413,10 +431,7 @@ export default function TasksPage() {
                     <span className="text-xs font-medium" style={{ color: 'rgba(42,37,32,0.4)' }}>Assignee</span>
                     <div className="flex items-center gap-2">
                       {selectedTask.assignee_user_id ? (
-                        <>
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: getColor(selectedTask.assignee_user_id) }}>{getInitials(getUserName(selectedTask.assignee_user_id))}</div>
-                          <span className="text-sm text-ink">{getUserName(selectedTask.assignee_user_id)}</span>
-                        </>
+                        <><div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: getColor(selectedTask.assignee_user_id) }}>{getInitials(getUserName(selectedTask.assignee_user_id))}</div><span className="text-sm text-ink">{getUserName(selectedTask.assignee_user_id)}</span></>
                       ) : <span className="text-sm" style={{ color: 'rgba(42,37,32,0.3)' }}>Unassigned</span>}
                     </div>
                   </div>
@@ -424,12 +439,44 @@ export default function TasksPage() {
                     <span className="text-xs font-medium" style={{ color: 'rgba(42,37,32,0.4)' }}>Due Date</span>
                     <span className="text-sm text-ink">{selectedTask.due_date ? new Date(selectedTask.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No due date'}</span>
                   </div>
-                  <div className="flex items-center justify-between py-2 border-b border-cream/50">
-                    <span className="text-xs font-medium" style={{ color: 'rgba(42,37,32,0.4)' }}>Created</span>
-                    <span className="text-sm" style={{ color: 'rgba(42,37,32,0.6)' }}>{new Date(selectedTask.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                </div>
+
+                {/* Links Section */}
+                <div className="pt-4 border-t border-cream">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(42,37,32,0.4)' }}>Links</h4>
+                    <button onClick={() => setShowAddLink(!showAddLink)} className="text-xs font-medium" style={{ color: '#3b82f6' }}>+ Add Link</button>
+                  </div>
+
+                  {showAddLink && (
+                    <form onSubmit={addLink} className="mb-3 p-3 rounded-lg border border-cream" style={{ backgroundColor: '#FAF8F0' }}>
+                      <input type="text" value={linkName} onChange={(e) => setLinkName(e.target.value)} placeholder="Link name (optional)" className="w-full px-3 py-2 border border-cream rounded-lg text-sm mb-2 focus:outline-none" />
+                      <input type="text" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://drive.google.com/..." className="w-full px-3 py-2 border border-cream rounded-lg text-sm mb-2 focus:outline-none" required />
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setShowAddLink(false)} className="flex-1 py-1.5 text-xs rounded border border-cream" style={{ color: 'rgba(42,37,32,0.5)' }}>Cancel</button>
+                        <button type="submit" className="flex-1 py-1.5 text-xs rounded text-white" style={{ backgroundColor: '#2A2520' }}>Add</button>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="space-y-2">
+                    {taskLinks.length === 0 && !showAddLink && <p className="text-xs text-center py-2" style={{ color: 'rgba(42,37,32,0.3)' }}>No links yet</p>}
+                    {taskLinks.map(link => (
+                      <div key={link.id} className="flex items-center gap-2 p-2 rounded-lg border border-cream/50" style={{ backgroundColor: '#FAF8F0' }}>
+                        <div className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#3b82f6' }}>
+                          <span className="text-white text-xs font-bold">&#128279;</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <a href={link.file_path} target="_blank" rel="noopener noreferrer" className="text-sm font-medium truncate block hover:underline" style={{ color: '#3b82f6' }}>{link.file_name}</a>
+                          <p className="text-xs truncate" style={{ color: 'rgba(42,37,32,0.4)' }}>{getLinkDomain(link.file_path)}</p>
+                        </div>
+                        <button onClick={() => deleteLink(link.id)} className="text-xs px-1 flex-shrink-0" style={{ color: '#ef4444' }}>x</button>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
+                {/* Comments */}
                 <div className="pt-4 border-t border-cream">
                   <h4 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'rgba(42,37,32,0.4)' }}>Comments</h4>
                   <div className="space-y-3 mb-4">
@@ -478,15 +525,13 @@ export default function TasksPage() {
               <div>
                 <label className="block text-sm font-medium text-ink mb-1">Client *</label>
                 <select value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} className="w-full px-4 py-2.5 border border-cream rounded-lg text-sm bg-white" required>
-                  <option value="">Select a client</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.business_name}</option>)}
+                  <option value="">Select a client</option>{clients.map(c => <option key={c.id} value={c.id}>{c.business_name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-ink mb-1">Assign To</label>
                 <select value={form.assignee_user_id} onChange={(e) => setForm({ ...form, assignee_user_id: e.target.value })} className="w-full px-4 py-2.5 border border-cream rounded-lg text-sm bg-white">
-                  <option value="">Unassigned</option>
-                  {users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
+                  <option value="">Unassigned</option>{users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-3 gap-4">
