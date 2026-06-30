@@ -132,11 +132,11 @@ export default function AITeamPage() {
         setMessages(prev => [...prev.filter(m => !m.id.startsWith('temp-u-')), userMsg, assistantMsg])
         await supabase.from('agent_messages').insert({ conversation_id: activeConvo.id, role: 'assistant', content: data.content })
       } else {
-        const errMsg: AgentMessage = { id: 'temp-e-' + Date.now(), conversation_id: activeConvo.id, role: 'assistant', content: 'Sorry, I encountered an error. Please try again.', created_at: new Date().toISOString() }
+        const errMsg: AgentMessage = { id: 'temp-e-' + Date.now(), conversation_id: activeConvo.id, role: 'assistant', content: 'Error: ' + (data.error || 'Unknown error. Check your API key and credits at console.anthropic.com.'), created_at: new Date().toISOString() }
         setMessages(prev => [...prev, errMsg])
       }
-    } catch {
-      const errMsg: AgentMessage = { id: 'temp-e-' + Date.now(), conversation_id: activeConvo.id, role: 'assistant', content: 'Connection error. Please try again.', created_at: new Date().toISOString() }
+    } catch (err) {
+      const errMsg: AgentMessage = { id: 'temp-e-' + Date.now(), conversation_id: activeConvo.id, role: 'assistant', content: 'Connection error: ' + String(err), created_at: new Date().toISOString() }
       setMessages(prev => [...prev, errMsg])
     }
 
@@ -212,23 +212,16 @@ export default function AITeamPage() {
             <button onClick={() => setShowCreate(true)} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-cream/50" style={{ color: 'rgba(42,37,32,0.4)' }}>+</button>
           </div>
           {agents.length === 0 && (
-            <button onClick={() => setShowPresets(true)} className="w-full py-2.5 rounded-lg border border-dashed text-sm font-medium hover:bg-cream/30" style={{ borderColor: '#EBE3D3', color: 'rgba(42,37,32,0.5)' }}>
-              Add preset agents
-            </button>
+            <button onClick={() => setShowPresets(true)} className="w-full py-2.5 rounded-lg border border-dashed text-sm font-medium hover:bg-cream/30" style={{ borderColor: '#EBE3D3', color: 'rgba(42,37,32,0.5)' }}>Add preset agents</button>
           )}
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {/* Agent List */}
           <div className="p-3 space-y-1">
             {agents.map(agent => (
-              <button key={agent.id} onClick={() => selectAgent(agent)} className="w-full text-left p-3 rounded-xl transition-colors" style={{
-                backgroundColor: selectedAgent?.id === agent.id ? '#FFFDB4' : 'transparent',
-              }}>
+              <button key={agent.id} onClick={() => selectAgent(agent)} className="w-full text-left p-3 rounded-xl transition-colors" style={{ backgroundColor: selectedAgent?.id === agent.id ? '#FFFDB4' : 'transparent' }}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: agent.avatar_color }}>
-                    {getInitials(agent.name)}
-                  </div>
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: agent.avatar_color }}>{getInitials(agent.name)}</div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-ink truncate">{agent.name}</p>
                     <p className="text-xs truncate" style={{ color: 'rgba(42,37,32,0.4)' }}>{agent.role}</p>
@@ -243,7 +236,6 @@ export default function AITeamPage() {
             ))}
           </div>
 
-          {/* Conversations */}
           {selectedAgent && (
             <div className="px-3 pb-3 border-t border-cream mt-2 pt-3">
               <div className="flex items-center justify-between px-2 mb-2">
@@ -267,7 +259,6 @@ export default function AITeamPage() {
           )}
         </div>
 
-        {/* Agent Actions */}
         {selectedAgent && (
           <div className="px-3 py-3 border-t border-cream">
             <button onClick={() => deleteAgent(selectedAgent.id)} className="w-full py-2 rounded-lg border text-xs font-medium hover:bg-red-50" style={{ borderColor: '#fecaca', color: '#ef4444' }}>Delete Agent</button>
@@ -279,11 +270,8 @@ export default function AITeamPage() {
       <div className="flex-1 flex flex-col bg-white rounded-r-xl overflow-hidden border border-cream border-l-0">
         {selectedAgent && activeConvo ? (
           <>
-            {/* Header */}
             <div className="px-6 py-3 border-b border-cream flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: selectedAgent.avatar_color }}>
-                {getInitials(selectedAgent.name)}
-              </div>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: selectedAgent.avatar_color }}>{getInitials(selectedAgent.name)}</div>
               <div>
                 <h3 className="text-sm font-semibold text-ink">{selectedAgent.name}</h3>
                 <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>{selectedAgent.role}</p>
@@ -296,7 +284,6 @@ export default function AITeamPage() {
               )}
             </div>
 
-            {/* Messages */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {messages.length === 0 && (
                 <div className="text-center py-16">
@@ -315,11 +302,9 @@ export default function AITeamPage() {
               {messages.map((msg) => (
                 <div key={msg.id} className={`flex gap-3 mb-4 ${msg.role === 'user' ? 'justify-end' : ''}`}>
                   {msg.role === 'assistant' && (
-                    <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-1" style={{ backgroundColor: selectedAgent.avatar_color }}>
-                      {getInitials(selectedAgent.name)}
-                    </div>
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-1" style={{ backgroundColor: selectedAgent.avatar_color }}>{getInitials(selectedAgent.name)}</div>
                   )}
-                  <div className={`max-w-[70%] rounded-2xl px-4 py-3 ${msg.role === 'user' ? '' : ''}`} style={{
+                  <div className="max-w-[70%] rounded-2xl px-4 py-3" style={{
                     backgroundColor: msg.role === 'user' ? '#2A2520' : '#FAF8F0',
                     color: msg.role === 'user' ? '#FFFFFF' : undefined,
                   }}>
@@ -334,7 +319,6 @@ export default function AITeamPage() {
               <div ref={bottomRef} />
             </div>
 
-            {/* Input */}
             <div className="px-6 py-4 border-t border-cream">
               <form onSubmit={sendToAgent}>
                 <div className="flex gap-3">
@@ -386,9 +370,7 @@ export default function AITeamPage() {
                 return (
                   <div key={i} className="rounded-xl border border-cream p-4" style={{ opacity: alreadyAdded ? 0.5 : 1 }}>
                     <div className="flex items-center gap-3 mb-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: preset.color }}>
-                        {getInitials(preset.name)}
-                      </div>
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: preset.color }}>{getInitials(preset.name)}</div>
                       <div>
                         <p className="text-sm font-semibold text-ink">{preset.name}</p>
                         <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>{preset.role}</p>
