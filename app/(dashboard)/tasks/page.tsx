@@ -82,8 +82,10 @@ export default function TasksPage() {
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
+  const [filterClient, setFilterClient] = useState('all')
+  const [filterService, setFilterService] = useState('all')
+  const [filterAssignee, setFilterAssignee] = useState('all')
 
-  // Detail panel
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState('')
@@ -99,11 +101,9 @@ export default function TasksPage() {
   const loadData = async () => {
     const { data: { session } } = await supabase.auth.getSession()
     if (session) setUserId(session.user.id)
-
     const { data: tasksData } = await supabase.from('tasks').select('*, clients(business_name)').order('created_at', { ascending: false })
     const { data: clientsData } = await supabase.from('clients').select('id, business_name').order('business_name')
     const { data: usersData } = await supabase.from('users').select('id, full_name, email')
-
     if (tasksData) setTasks(tasksData)
     if (clientsData) setClients(clientsData)
     if (usersData) setUsers(usersData)
@@ -113,7 +113,7 @@ export default function TasksPage() {
   useEffect(() => { loadData() }, [])
 
   const loadComments = async (taskId: string) => {
-    const { data } = await supabase.from('task_comments').select('*, users:user_id(full_name, email)').eq('task_id', taskId).order('created_at', { ascending: true })
+    const { data } = await supabase.from('task_comments').select('*, users:user_id(full_name, email)').eq('task_id', taskId).order('created_at')
     if (data) setComments(data)
   }
 
@@ -121,14 +121,9 @@ export default function TasksPage() {
     setSelectedTask(task)
     setEditing(false)
     setEditForm({
-      title: task.title,
-      description: task.description || '',
-      status: task.status,
-      priority: task.priority,
-      service_area: task.service_area,
-      due_date: task.due_date ? task.due_date.split('T')[0] : '',
-      assignee_user_id: task.assignee_user_id || '',
-      client_id: task.client_id,
+      title: task.title, description: task.description || '', status: task.status, priority: task.priority,
+      service_area: task.service_area, due_date: task.due_date ? task.due_date.split('T')[0] : '',
+      assignee_user_id: task.assignee_user_id || '', client_id: task.client_id,
     })
     loadComments(task.id)
   }
@@ -137,14 +132,9 @@ export default function TasksPage() {
     if (!selectedTask) return
     setSaving(true)
     await supabase.from('tasks').update({
-      title: editForm.title,
-      description: editForm.description || null,
-      status: editForm.status,
-      priority: editForm.priority,
-      service_area: editForm.service_area,
-      due_date: editForm.due_date || null,
-      assignee_user_id: editForm.assignee_user_id || null,
-      client_id: editForm.client_id,
+      title: editForm.title, description: editForm.description || null, status: editForm.status,
+      priority: editForm.priority, service_area: editForm.service_area, due_date: editForm.due_date || null,
+      assignee_user_id: editForm.assignee_user_id || null, client_id: editForm.client_id,
     }).eq('id', selectedTask.id)
     setSaving(false)
     setEditing(false)
@@ -173,15 +163,9 @@ export default function TasksPage() {
     e.preventDefault()
     setSaving(true)
     await supabase.from('tasks').insert({
-      title: form.title,
-      description: form.description || null,
-      client_id: form.client_id,
-      status: form.status,
-      priority: form.priority,
-      service_area: form.service_area,
-      due_date: form.due_date || null,
-      assignee_user_id: form.assignee_user_id || null,
-      created_by: userId,
+      title: form.title, description: form.description || null, client_id: form.client_id, status: form.status,
+      priority: form.priority, service_area: form.service_area, due_date: form.due_date || null,
+      assignee_user_id: form.assignee_user_id || null, created_by: userId,
     })
     setForm({ title: '', description: '', client_id: '', status: 'todo', priority: 'medium', service_area: 'admin', due_date: '', assignee_user_id: '' })
     setShowForm(false)
@@ -206,16 +190,23 @@ export default function TasksPage() {
   const getUserName = (id: string | null) => { if (!id) return 'Unassigned'; const u = users.find(x => x.id === id); return u?.full_name || u?.email || 'Unknown' }
   const formatTime = (d: string) => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
+  const filteredTasks = tasks.filter(t => {
+    if (filterClient !== 'all' && t.client_id !== filterClient) return false
+    if (filterService !== 'all' && t.service_area !== filterService) return false
+    if (filterAssignee !== 'all' && (t.assignee_user_id || 'unassigned') !== filterAssignee) return false
+    return true
+  })
+
   if (loading) return (<p style={{ color: 'rgba(42,37,32,0.5)' }}>Loading tasks...</p>)
 
   return (
     <div className="flex gap-0">
       <div className={`${selectedTask ? 'flex-1' : 'w-full'} transition-all`}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-2xl font-bold text-ink">Tasks</h2>
-            <p className="text-sm mt-1" style={{ color: 'rgba(42,37,32,0.5)' }}>{tasks.length} total tasks</p>
+            <p className="text-sm mt-1" style={{ color: 'rgba(42,37,32,0.5)' }}>{filteredTasks.length} of {tasks.length} tasks</p>
           </div>
           <div className="flex gap-3">
             <div className="flex rounded-lg overflow-hidden border border-cream">
@@ -226,11 +217,33 @@ export default function TasksPage() {
           </div>
         </div>
 
+        {/* Filters */}
+        <div className="flex gap-3 mb-4 flex-wrap">
+          <select value={filterClient} onChange={(e) => setFilterClient(e.target.value)} className="px-3 py-2 border border-cream rounded-lg text-sm bg-white" style={{ color: '#2A2520' }}>
+            <option value="all">All Clients</option>
+            {clients.map(c => <option key={c.id} value={c.id}>{c.business_name}</option>)}
+          </select>
+          <select value={filterService} onChange={(e) => setFilterService(e.target.value)} className="px-3 py-2 border border-cream rounded-lg text-sm bg-white" style={{ color: '#2A2520' }}>
+            <option value="all">All Services</option>
+            {Object.entries(serviceLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select>
+          <select value={filterAssignee} onChange={(e) => setFilterAssignee(e.target.value)} className="px-3 py-2 border border-cream rounded-lg text-sm bg-white" style={{ color: '#2A2520' }}>
+            <option value="all">All Assignees</option>
+            <option value="unassigned">Unassigned</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
+          </select>
+          {(filterClient !== 'all' || filterService !== 'all' || filterAssignee !== 'all') && (
+            <button onClick={() => { setFilterClient('all'); setFilterService('all'); setFilterAssignee('all') }} className="px-3 py-2 rounded-lg text-xs font-medium hover:bg-cream/50" style={{ color: '#ef4444' }}>
+              Clear filters
+            </button>
+          )}
+        </div>
+
         {/* Kanban */}
         {view === 'kanban' ? (
           <div className={`grid ${selectedTask ? 'grid-cols-2' : 'grid-cols-4'} gap-4`}>
             {columns.map((col) => {
-              const colTasks = tasks.filter(t => t.status === col.key)
+              const colTasks = filteredTasks.filter(t => t.status === col.key)
               const isOver = dropTarget === col.key
               return (
                 <div key={col.key} className="bg-white rounded-xl border-2 transition-colors" style={{ borderColor: isOver ? '#FFFDB4' : '#EBE3D3', backgroundColor: isOver ? '#FFFDF0' : '#FFFFFF' }} onDragOver={(e) => handleDragOver(e, col.key)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, col.key)}>
@@ -247,21 +260,15 @@ export default function TasksPage() {
                       return (
                         <div key={task.id} draggable onDragStart={(e) => handleDragStart(e, task.id)} onDragEnd={handleDragEnd} onClick={() => openTask(task)} className="rounded-lg p-3 border cursor-pointer hover:shadow-sm transition-all" style={{ backgroundColor: selectedTask?.id === task.id ? '#FFFDB4' : '#FAF8F0', borderColor: selectedTask?.id === task.id ? '#f59e0b' : 'rgba(235,227,211,0.5)' }}>
                           <div className="flex items-center gap-2 mb-2">
-                            <span className="text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: serviceColors[task.service_area] || '#6b7280' }}>
-                              {serviceLabels[task.service_area] || task.service_area}
-                            </span>
+                            <span className="text-xs px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: serviceColors[task.service_area] || '#6b7280' }}>{serviceLabels[task.service_area] || task.service_area}</span>
                             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: priorityColors[task.priority] || '#94a3b8' }} title={task.priority} />
                           </div>
                           <p className="text-sm font-medium text-ink mb-1">{task.title}</p>
                           <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>{task.clients?.business_name || 'No client'}</p>
                           <div className="flex items-center justify-between mt-2">
-                            {task.due_date && (
-                              <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>Due: {new Date(task.due_date).toLocaleDateString()}</p>
-                            )}
+                            {task.due_date && <p className="text-xs" style={{ color: 'rgba(42,37,32,0.4)' }}>Due: {new Date(task.due_date).toLocaleDateString()}</p>}
                             {assignee && (
-                              <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ml-auto" style={{ backgroundColor: getColor(assignee.id) }} title={assignee.full_name}>
-                                {getInitials(assignee.full_name || assignee.email)}
-                              </div>
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ml-auto" style={{ backgroundColor: getColor(assignee.id) }} title={assignee.full_name}>{getInitials(assignee.full_name || assignee.email)}</div>
                             )}
                           </div>
                         </div>
@@ -287,7 +294,7 @@ export default function TasksPage() {
                 </tr>
               </thead>
               <tbody>
-                {tasks.map((task) => (
+                {filteredTasks.map((task) => (
                   <tr key={task.id} onClick={() => openTask(task)} className="border-b border-cream/50 hover:bg-cream-light/30 transition-colors cursor-pointer" style={{ backgroundColor: selectedTask?.id === task.id ? '#FFFDF0' : 'transparent' }}>
                     <td className="px-5 py-4"><p className="text-sm font-medium text-ink">{task.title}</p></td>
                     <td className="px-5 py-4"><p className="text-sm" style={{ color: 'rgba(42,37,32,0.7)' }}>{task.clients?.business_name || '-'}</p></td>
@@ -309,8 +316,8 @@ export default function TasksPage() {
                     <td className="px-5 py-4"><p className="text-sm" style={{ color: 'rgba(42,37,32,0.5)' }}>{task.due_date ? new Date(task.due_date).toLocaleDateString() : '-'}</p></td>
                   </tr>
                 ))}
-                {tasks.length === 0 && (
-                  <tr><td colSpan={7} className="px-5 py-12 text-center text-sm" style={{ color: 'rgba(42,37,32,0.4)' }}>No tasks yet.</td></tr>
+                {filteredTasks.length === 0 && (
+                  <tr><td colSpan={7} className="px-5 py-12 text-center text-sm" style={{ color: 'rgba(42,37,32,0.4)' }}>No tasks match the current filters.</td></tr>
                 )}
               </tbody>
             </table>
@@ -386,20 +393,17 @@ export default function TasksPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Status & Priority */}
                 <div className="flex items-center gap-2">
                   <span className="text-xs px-2.5 py-1 rounded-full text-white" style={{ backgroundColor: serviceColors[selectedTask.service_area] || '#6b7280' }}>{serviceLabels[selectedTask.service_area]}</span>
                   <span className="text-xs px-2.5 py-1 rounded-full font-medium capitalize" style={{ color: priorityColors[selectedTask.priority], backgroundColor: priorityColors[selectedTask.priority] + '15' }}>{selectedTask.priority}</span>
                   <span className="text-xs px-2.5 py-1 rounded-full font-medium capitalize" style={{ backgroundColor: '#f1f5f9', color: '#64748b' }}>{columns.find(c => c.key === selectedTask.status)?.label}</span>
                 </div>
 
-                {/* Description */}
                 <div>
                   <p className="text-xs font-medium mb-1" style={{ color: 'rgba(42,37,32,0.4)' }}>Description</p>
                   <p className="text-sm" style={{ color: selectedTask.description ? 'rgba(42,37,32,0.8)' : 'rgba(42,37,32,0.3)' }}>{selectedTask.description || 'No description'}</p>
                 </div>
 
-                {/* Details Grid */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between py-2 border-b border-cream/50">
                     <span className="text-xs font-medium" style={{ color: 'rgba(42,37,32,0.4)' }}>Client</span>
@@ -426,18 +430,13 @@ export default function TasksPage() {
                   </div>
                 </div>
 
-                {/* Comments */}
                 <div className="pt-4 border-t border-cream">
                   <h4 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'rgba(42,37,32,0.4)' }}>Comments</h4>
                   <div className="space-y-3 mb-4">
-                    {comments.length === 0 && (
-                      <p className="text-xs text-center py-3" style={{ color: 'rgba(42,37,32,0.3)' }}>No comments yet</p>
-                    )}
+                    {comments.length === 0 && <p className="text-xs text-center py-3" style={{ color: 'rgba(42,37,32,0.3)' }}>No comments yet</p>}
                     {comments.map(c => (
                       <div key={c.id} className="flex gap-2">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: getColor(c.user_id) }}>
-                          {getInitials(c.users?.full_name || c.users?.email || '?')}
-                        </div>
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: getColor(c.user_id) }}>{getInitials(c.users?.full_name || c.users?.email || '?')}</div>
                         <div>
                           <div className="flex items-baseline gap-2">
                             <span className="text-xs font-semibold" style={{ color: '#2A2520' }}>{c.users?.full_name || c.users?.email}</span>
