@@ -79,13 +79,20 @@ export default function MessagesPage() {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
-      setUserId(session.user.id)
+      const myId = session.user.id
+      setUserId(myId)
       setUserName(session.user.user_metadata?.full_name || session.user.email || '')
       const { data: allChannels } = await supabase.from('channels').select('*').order('created_at', { ascending: true })
       const { data: usersData } = await supabase.from('users').select('id, full_name, email, role')
-      if (allChannels && allChannels.length > 0) { setChannels(allChannels); setActiveChannel(allChannels[0]) }
-      else if (allChannels) setChannels(allChannels)
       if (usersData) setUsers(usersData)
+      if (allChannels) {
+        const myChannels = allChannels.filter(c => {
+          if (c.type === 'dm') return c.name.includes(myId)
+          return true
+        })
+        setChannels(myChannels)
+        if (myChannels.length > 0) setActiveChannel(myChannels[0])
+      }
       setLoading(false)
     }
     init()
@@ -125,10 +132,7 @@ export default function MessagesPage() {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
     const filePath = `messages/${activeChannel.id}/${Date.now()}-${safeName}`
     const { error } = await supabase.storage.from('files').upload(filePath, file)
-    if (error) {
-      console.error('Upload error:', error)
-      return null
-    }
+    if (error) { console.error('Upload error:', error); return null }
     const { data } = supabase.storage.from('files').getPublicUrl(filePath)
     return { name: file.name, url: data.publicUrl, path: filePath }
   }
