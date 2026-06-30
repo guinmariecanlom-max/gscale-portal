@@ -1,23 +1,39 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { supabase } from '@/lib/supabase/client'
 
-const navItems = [
-  { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Clients', href: '/clients' },
-  { label: 'Tasks', href: '/tasks' },
-  { label: 'Messages', href: '/messages' },
-  { label: 'Files', href: '/files' },
-  { label: 'Invoices', href: '/invoices' },
-  { label: 'Bookings', href: '/bookings' },
-  { label: 'Team', href: '/team' },
-  { label: 'AI Team', href: '/ai-team' },
-  { label: 'Settings', href: '/settings' },
+const allNavItems = [
+  { label: 'Dashboard', href: '/dashboard', adminOnly: false },
+  { label: 'Clients', href: '/clients', adminOnly: false },
+  { label: 'Tasks', href: '/tasks', adminOnly: false },
+  { label: 'Messages', href: '/messages', adminOnly: false },
+  { label: 'Files', href: '/files', adminOnly: false },
+  { label: 'Invoices', href: '/invoices', adminOnly: true },
+  { label: 'Bookings', href: '/bookings', adminOnly: true },
+  { label: 'Team', href: '/team', adminOnly: true },
+  { label: 'AI Team', href: '/ai-team', adminOnly: false },
+  { label: 'Settings', href: '/settings', adminOnly: false },
 ]
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const [userRole, setUserRole] = useState('')
+
+  useEffect(() => {
+    const getRole = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        const { data } = await supabase.from('users').select('role').eq('id', session.user.id).single()
+        if (data) setUserRole(data.role)
+      }
+    }
+    getRole()
+  }, [])
+
+  const navItems = allNavItems.filter(item => !item.adminOnly || userRole === 'admin')
 
   return (
     <aside className="w-56 min-h-screen flex flex-col" style={{ backgroundColor: '#2A2520' }}>
